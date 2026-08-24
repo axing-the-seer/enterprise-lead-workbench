@@ -4,6 +4,14 @@
 
 WorkBuddy 与其他 AI 客户端通过受控 MCP 或 REST/OpenAPI 调用同一套应用服务；Agent 是可选入口，不是系统运行依赖。
 
+## 产品演示
+
+[![企业名单工作台产品演示](./docs/screenshots/01-find-companies.png)](./docs/media/enterprise-lead-workbench-demo.mp4)
+
+[播放或下载 1 分 29 秒产品演示（MP4，6.5 MB）](./docs/media/enterprise-lead-workbench-demo.mp4)
+
+演示覆盖找企业、我的名单、企业详情和企业调研报告。画面中的联系电话均已脱敏。
+
 ## 首批数据源
 
 - 获客助手：由金蝶征信有限公司提供企业名单检索及单企工商司法能力。
