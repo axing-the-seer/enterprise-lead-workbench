@@ -54,7 +54,7 @@ test("user manages a seeded source-backed list and opens company detail", async 
   ).toBeVisible();
   await expect(page.getByRole("tab", { name: "企业信息" })).toBeVisible();
   await expect(page.getByRole("tab", { name: "来源与冲突" })).toBeVisible();
-  await expect(page.getByRole("tab", { name: "公开信息报告" })).toBeVisible();
+  await expect(page.getByRole("tab", { name: "企业报告" })).toBeVisible();
 });
 
 test("cost-bearing verification requires explicit confirmation", async ({
@@ -69,7 +69,7 @@ test("cost-bearing verification requires explicit confirmation", async ({
   await page
     .getByRole("checkbox", { name: "选择上海智造设备有限公司" })
     .click();
-  await page.getByRole("button", { name: "继续核验" }).click();
+  await page.getByRole("button", { name: "核验所选 1 家" }).click();
   await expect(
     page.getByRole("heading", { name: "确认企查查核验" }),
   ).toBeVisible();

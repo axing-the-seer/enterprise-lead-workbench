@@ -9,7 +9,7 @@ test("advanced pages are reachable without reviving the legacy CRM IA", async ({
   await login(seed);
 
   for (const [path, heading] of [
-    ["sources", "数据源连接"],
+    ["sources", "连接真实数据源"],
     ["mappings", "字段映射"],
     ["rules", "规则模板"],
     ["runs", "执行任务"],

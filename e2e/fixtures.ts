@@ -130,6 +130,13 @@ async function setupWorkbench(): Promise<WorkbenchSeed> {
   const workspaceId = String(row?.workspace_id ?? "");
   if (!workspaceId) throw new Error("Workspace initialization returned no ID");
 
+  const { error: sourceError } = await adminSupabase
+    .from("source_connections")
+    .update({ status: "ready", last_verified_at: new Date().toISOString() })
+    .eq("workspace_id", workspaceId)
+    .in("provider", ["qcc", "huoke_assistant", "web_search"]);
+  if (sourceError) throw sourceError;
+
   const { data: company, error: companyError } = await adminSupabase
     .from("companies")
     .insert({
