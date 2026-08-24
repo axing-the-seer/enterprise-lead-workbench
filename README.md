@@ -12,6 +12,20 @@ WorkBuddy 与其他 AI 客户端通过受控 MCP 或 REST/OpenAPI 调用同一�
 
 演示覆盖找企业、我的名单、企业详情和企业调研报告。画面中的联系电话均已脱敏。
 
+## 主要界面
+
+| 找企业 | 我的名单 |
+| --- | --- |
+| ![找企业](./docs/screenshots/01-find-companies.png) | ![我的名单](./docs/screenshots/02-my-lists.png) |
+
+| 名单详情 | 企业详情 |
+| --- | --- |
+| ![名单详情](./docs/screenshots/03-list-detail.png) | ![企业详情](./docs/screenshots/04-company-detail.png) |
+
+| 企业调研报告 | 配置 |
+| --- | --- |
+| ![企业调研报告](./docs/screenshots/05-company-report.png) | ![配置](./docs/screenshots/06-configuration.png) |
+
 ## 首批数据源
 
 - 获客助手：由金蝶征信有限公司提供企业名单检索及单企工商司法能力。
