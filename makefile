@@ -80,12 +80,15 @@ start-supabase-e2e: ## start a separate supabase instance for e2e (fresh DB ever
 	cp supabase/signing_keys.json .supabase-e2e/supabase/signing_keys.json
 	@$(call run-silent-tty,npx supabase start --workdir .supabase-e2e,supabase-e2e)
 
+write-e2e-env: ## derive temporary browser-test credentials from the isolated local Supabase instance
+	node scripts/write-e2e-env.mjs
+
 stop-supabase-e2e: ## stop the e2e supabase instance
 	npx supabase stop --workdir .supabase-e2e --no-backup
 
-start-e2e: start-supabase-e2e start-app-e2e ## start the stack in e2e mode (fresh supabase instance + app pointing to it)
+start-e2e: start-supabase-e2e write-e2e-env start-app-e2e ## start the stack in e2e mode (fresh supabase instance + app pointing to it)
 
-start-e2e-ci: start-supabase-e2e start-app-e2e-ci ## start the stack in e2e mode in CI (fresh supabase instance + built app pointing to it)
+start-e2e-ci: start-supabase-e2e write-e2e-env start-app-e2e-ci ## start the stack in e2e mode in CI (fresh supabase instance + built app pointing to it)
 
 stop-e2e: stop-supabase-e2e stop-app-e2e ## stop the stack in e2e mode
 
