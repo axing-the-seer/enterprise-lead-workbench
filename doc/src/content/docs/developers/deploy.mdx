@@ -12,8 +12,11 @@ description: 部署 Web UI、Supabase、Provider Worker 和两套 Skill。
 1. 创建 Supabase 项目并应用 `supabase/migrations`。
 2. 部署 `bootstrap-admin`、`workbench-api`、`workbench-jobs`、`mcp` 等 Edge Functions。
 3. 在服务端 Secret 中配置至少 24 字节的 `WORKBENCH_BOOTSTRAP_TOKEN`。
-4. 保持公开 Email/SMS 注册关闭；首位管理员创建成功后，引导页面会永久关闭。
-5. 为获客助手、企查查和联网搜索配置服务器端凭证或可执行程序路径。凭证不得使用 `VITE_*` 变量。
+4. 将 `WORKBENCH_PUBLIC_ORIGIN` 固定为 Supabase Functions 所在的 HTTPS Origin，例如 `https://<project-ref>.supabase.co`。生产环境缺失或使用 HTTP 时 MCP 会拒绝启动，不会从 `Host` / `X-Forwarded-Host` 猜测外部地址。
+5. 保持公开 Email/SMS 注册关闭；首位管理员创建成功后，引导页面会永久关闭。
+6. 为获客助手、企查查和联网搜索配置服务器端凭证或可执行程序路径。凭证不得使用 `VITE_*` 变量。
+
+使用仓库的 GitHub Actions 部署时，工作流会把受信任的 `SUPABASE_URL` 明确写为该 Origin；只有通过自定义代理域名暴露 MCP 时，才需要创建 Repository Variable `WORKBENCH_PUBLIC_ORIGIN` 覆盖它。初始化脚本也会根据项目引用自动写入同一地址。
 
 ## 2. Provider Worker
 
@@ -29,10 +32,13 @@ npm run build:worker
 ```sh
 SUPABASE_URL='<项目地址>' \
 SUPABASE_SERVICE_ROLE_KEY='<服务端密钥>' \
+NODE_OPTIONS='--max-old-space-size=512' \
 npm run worker:start
 ```
 
-Worker 使用服务角色，只能运行在可信服务器，不得打包进浏览器或公开下载物。
+Worker 使用服务角色，只能运行在可信服务器，不得打包进浏览器或公开下载物。生产运行环境还应设置硬资源边界：单实例至少 512 MiB、建议上限 768 MiB，CPU 上限 1 核，单次任务运行上限 5 分钟，并启用异常退出自动重启。内存、CPU 与进程时限应由容器或进程管理器强制执行，不能只依赖应用内计时器。
+
+XLSX 在交给 ExcelJS 前会检查 ZIP 条目数、总解压体积、单条目体积、压缩比、加密标记和危险路径；压缩后文件大小限制不能替代这些检查。部署层的内存和 CPU 边界仍然必须保留，作为解析库异常与未知格式的第二道防线。
 
 ## 3. Web UI
 

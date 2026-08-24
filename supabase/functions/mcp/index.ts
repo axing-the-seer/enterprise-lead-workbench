@@ -10,6 +10,7 @@ import {
 } from "jsr:@supabase/supabase-js@2.112.3";
 import type { z } from "zod";
 import { corsHeaders } from "../_shared/cors.ts";
+import { resolveWorkbenchPublicOrigin } from "./public-origin.ts";
 import {
   renderAgentCompanyReport,
   type CompanyAgentAnalysis,
@@ -51,12 +52,15 @@ const SUPABASE_JWT_ISSUER =
   Deno.env.get("SB_JWT_ISSUER") ?? `${SUPABASE_URL}/auth/v1`;
 const SUPABASE_JWT_AUDIENCE =
   Deno.env.get("SB_JWT_AUDIENCE") ?? "authenticated";
-const WORKBENCH_PUBLIC_ORIGIN = Deno.env.get("WORKBENCH_PUBLIC_ORIGIN") ?? "";
 
 if (!SUPABASE_URL) throw new Error("SUPABASE_URL is required");
 if (!SUPABASE_PUBLISHABLE_KEY) {
   throw new Error("SB_PUBLISHABLE_KEY is required");
 }
+const WORKBENCH_PUBLIC_ORIGIN = resolveWorkbenchPublicOrigin(
+  Deno.env.get("WORKBENCH_PUBLIC_ORIGIN"),
+  SUPABASE_URL,
+);
 
 const JWKS = createRemoteJWKSet(
   new URL(`${SUPABASE_URL}/auth/v1/.well-known/jwks.json`),
@@ -71,55 +75,8 @@ interface DataError {
   code?: string;
 }
 
-function getBaseUrl(req: Request): string {
-  if (WORKBENCH_PUBLIC_ORIGIN) {
-    try {
-      const configured = new URL(WORKBENCH_PUBLIC_ORIGIN);
-      if (
-        (configured.protocol === "http:" || configured.protocol === "https:") &&
-        !configured.username &&
-        !configured.password &&
-        configured.pathname === "/" &&
-        !configured.search &&
-        !configured.hash
-      ) {
-        return configured.origin;
-      }
-    } catch {
-      // Fall back to validated proxy/request headers below.
-    }
-  }
-  const forwardedHost = req.headers
-    .get("x-forwarded-host")
-    ?.split(",")[0]
-    ?.trim();
-  if (forwardedHost && /^[A-Za-z0-9.-]+(?::[0-9]{1,5})?$/.test(forwardedHost)) {
-    const forwardedProtocol = req.headers
-      .get("x-forwarded-proto")
-      ?.split(",")[0]
-      ?.trim()
-      .toLowerCase();
-    const isLoopback = /^(?:localhost|127\.0\.0\.1)(?::[0-9]{1,5})?$/.test(
-      forwardedHost,
-    );
-    const protocol =
-      forwardedProtocol === "http" || forwardedProtocol === "https"
-        ? forwardedProtocol
-        : isLoopback
-          ? "http"
-          : "https";
-    return `${protocol}://${forwardedHost}`;
-  }
-  const url = new URL(req.url);
-  const protocol =
-    url.hostname === "localhost" || url.hostname === "127.0.0.1"
-      ? "http"
-      : "https";
-  return `${protocol}://${url.host}`;
-}
-
-function getResourceMetadataUrl(req: Request): string {
-  return `${getBaseUrl(req)}/functions/v1/mcp/oauth-protected-resource`;
+function getResourceMetadataUrl(): string {
+  return `${WORKBENCH_PUBLIC_ORIGIN}/functions/v1/mcp/oauth-protected-resource`;
 }
 
 async function validateToken(req: Request): Promise<AuthInfo | null> {
@@ -940,8 +897,8 @@ function createMcpServer(authInfo: AuthInfo): McpServer {
   return server;
 }
 
-function handleProtectedResourceMetadata(req: Request): Response {
-  const baseUrl = getBaseUrl(req);
+function handleProtectedResourceMetadata(_req: Request): Response {
+  const baseUrl = WORKBENCH_PUBLIC_ORIGIN;
   return new Response(
     JSON.stringify({
       resource: `${baseUrl}/functions/v1/mcp`,
@@ -958,9 +915,7 @@ async function handleMcpRequest(req: Request): Promise<Response> {
     return new Response("Unauthorized", {
       status: 401,
       headers: {
-        "WWW-Authenticate": `Bearer resource_metadata="${getResourceMetadataUrl(
-          req,
-        )}"`,
+        "WWW-Authenticate": `Bearer resource_metadata="${getResourceMetadataUrl()}"`,
       },
     });
   }

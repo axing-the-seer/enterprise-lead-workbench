@@ -103,6 +103,9 @@ declare
   job_record public.ingestion_jobs%rowtype;
   resolved_company_id bigint;
   resolved_snapshot_id uuid;
+  evidence_payload jsonb;
+  available_evidence_ids text[];
+  cited_evidence_ids text[];
   next_revision integer;
   inserted_report public.company_reports%rowtype;
 begin
@@ -147,6 +150,59 @@ begin
     raise exception using errcode = '22023', message = 'evidence job result is incomplete';
   end if;
 
+  select ss.normalized_payload into evidence_payload
+  from public.source_snapshots ss
+  join public.source_records sr
+    on sr.workspace_id = ss.workspace_id
+   and sr.id = ss.source_record_id
+  where ss.workspace_id = p_workspace_id
+    and ss.id = resolved_snapshot_id
+    and ss.company_id = resolved_company_id
+    and sr.ingestion_job_id = p_evidence_job_id;
+  if not found then
+    raise exception using errcode = '22023', message = 'evidence job result is incomplete';
+  end if;
+
+  select coalesce(array_agg(candidate.evidence_id order by candidate.ordinality), array[]::text[])
+  into available_evidence_ids
+  from (
+    select item.ordinality,
+      case
+        when item.value ->> 'id' ~ '^ev-[0-9]{3}$' then item.value ->> 'id'
+        else 'ev-' || lpad(item.ordinality::text, 3, '0')
+      end as evidence_id
+    from jsonb_array_elements(
+      case
+        when jsonb_typeof(evidence_payload -> 'evidence') = 'array'
+          then evidence_payload -> 'evidence'
+        else '[]'::jsonb
+      end
+    ) with ordinality as item(value, ordinality)
+    where item.ordinality <= 50
+      and jsonb_typeof(item.value) = 'object'
+      and coalesce(item.value ->> 'title', '') <> ''
+      and coalesce(item.value ->> 'url', '') ~* '^https?://'
+  ) candidate;
+
+  if jsonb_typeof(p_analysis -> 'executiveEvidenceIds') is distinct from 'array' then
+    raise exception using errcode = '22023', message = 'agent analysis evidence references are invalid';
+  end if;
+  if jsonb_array_length(p_analysis -> 'executiveEvidenceIds') = 0 then
+    raise exception using errcode = '22023', message = 'agent analysis evidence references are invalid';
+  end if;
+  select coalesce(array_agg(distinct reference.value #>> '{}'), array[]::text[])
+  into cited_evidence_ids
+  from jsonb_path_query(p_analysis, '$.**.evidenceIds[*]') as reference(value);
+  if cardinality(cited_evidence_ids) = 0
+     or exists (
+       select 1
+       from unnest(cited_evidence_ids) cited_id
+       where cited_id !~ '^ev-[0-9]{3}$'
+          or not (cited_id = any(available_evidence_ids))
+     ) then
+    raise exception using errcode = '22023', message = 'agent analysis evidence references are invalid';
+  end if;
+
   update public.company_reports
   set is_current = false, status = 'superseded', updated_at = now()
   where workspace_id = p_workspace_id
@@ -173,11 +229,13 @@ begin
     workspace_id, actor_type, actor_user_id, actor_label, action,
     entity_type, entity_id, request_id, metadata
   ) values (
-    p_workspace_id, 'agent', auth.uid(), btrim(p_agent_name),
+    p_workspace_id, 'user', auth.uid(), null,
     'company_report.analysis_submitted', 'company_report',
     inserted_report.id::text, p_evidence_job_id::text,
     jsonb_build_object(
-      'agent_provider', p_agent_provider,
+      'submission_channel', 'authenticated_rpc',
+      'claimed_agent_provider', p_agent_provider,
+      'claimed_agent_name', btrim(p_agent_name),
       'company_id', resolved_company_id,
       'revision', next_revision
     )

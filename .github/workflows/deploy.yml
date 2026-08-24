@@ -7,12 +7,13 @@ concurrency:
     cancel-in-progress: true
 
 permissions:
-    pages: write
-    contents: write
+    contents: read
 
 jobs:
     deploy-doc:
         name: 🚀 Deploy (doc)
+        permissions:
+            contents: write
         runs-on: ubuntu-latest
         timeout-minutes: 5
 
@@ -21,10 +22,10 @@ jobs:
 
         steps:
             - name: 📥 Checkout repo
-              uses: actions/checkout@v4
+              uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
             - name: ⚙️ Setup node
-              uses: actions/setup-node@v4
+              uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
               with:
                   node-version: 22
                   cache: npm
@@ -52,6 +53,8 @@ jobs:
 
     deploy-demo:
         name: 🚀 Deploy (demo)
+        permissions:
+            contents: write
         runs-on: ubuntu-latest
         timeout-minutes: 10
 
@@ -63,10 +66,10 @@ jobs:
 
         steps:
             - name: 📥 Checkout repo
-              uses: actions/checkout@v4
+              uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
             - name: ⚙️ Setup node
-              uses: actions/setup-node@v4
+              uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
               with:
                   node-version: 22
                   cache: npm
@@ -92,6 +95,8 @@ jobs:
 
     deploy-supabase:
         name: 🚀 Deploy (supabase)
+        permissions:
+            contents: write
         runs-on: ubuntu-latest
         timeout-minutes: 10
 
@@ -106,6 +111,7 @@ jobs:
             VITE_INBOUND_EMAIL: ${{ vars.VITE_INBOUND_EMAIL }}
             VITE_ATTACHMENTS_BUCKET: ${{ vars.VITE_ATTACHMENTS_BUCKET || 'attachments' }}
             WORKBENCH_BOOTSTRAP_TOKEN: ${{ secrets.WORKBENCH_BOOTSTRAP_TOKEN }}
+            WORKBENCH_PUBLIC_ORIGIN: ${{ vars.WORKBENCH_PUBLIC_ORIGIN || secrets.SUPABASE_URL }}
             PRODUCTION_REMOTE: https://git:${{ secrets.DEPLOY_TOKEN || secrets.GITHUB_TOKEN }}@github.com/${{ vars.DEPLOY_REPOSITORY }}
             POSTMARK_WEBHOOK_USER: ${{secrets.POSTMARK_WEBHOOK_USER}}
             POSTMARK_WEBHOOK_PASSWORD: ${{secrets.POSTMARK_WEBHOOK_PASSWORD}}
@@ -114,10 +120,10 @@ jobs:
 
         steps:
             - name: 📥 Checkout repo
-              uses: actions/checkout@v4
+              uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
             - name: ⚙️ Setup node
-              uses: actions/setup-node@v4
+              uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
               with:
                   node-version: 22
                   cache: npm
@@ -131,7 +137,7 @@ jobs:
                   git config --global user.name github-actions-bot
 
             - name: ⚙️ Setup supabase
-              uses: supabase/setup-cli@v1
+              uses: supabase/setup-cli@ab058987d8d6c725971f6cf9d0b5c98467e30bd1 # v1.7.1
 
             - name: 📥 Download deps
               run: npm ci
@@ -173,22 +179,39 @@ jobs:
               run: npx supabase db push
 
             - if: ${{ env.IS_SUPABASE_CONFIGURED }}
-              name: 🔐 Push first-administrator bootstrap secret
+              name: 🔐 Push Supabase function secrets
               run: |
-                  secret_file="$RUNNER_TEMP/workbench-bootstrap.env"
-                  trap 'rm -f "$secret_file"' EXIT
+                  export SECRET_FILE="$RUNNER_TEMP/workbench-functions.env"
+                  trap 'rm -f "$SECRET_FILE"' EXIT
                   umask 077
-                  printf 'WORKBENCH_BOOTSTRAP_TOKEN=%s\n' "$WORKBENCH_BOOTSTRAP_TOKEN" > "$secret_file"
-                  npx supabase secrets set --env-file "$secret_file" >/dev/null
-
-            - if: ${{ env.IS_SUPABASE_CONFIGURED && env.POSTMARK_WEBHOOK_USER && env.POSTMARK_WEBHOOK_PASSWORD && env.POSTMARK_WEBHOOK_AUTHORIZED_IPS }}
-              name: 📡 Push supabase postmark webhook user secret
-              run: |
-                  npx supabase secrets set POSTMARK_WEBHOOK_USER=${{ env.POSTMARK_WEBHOOK_USER }}
-                  npx supabase secrets set POSTMARK_WEBHOOK_PASSWORD=${{ env.POSTMARK_WEBHOOK_PASSWORD }}
-                  npx supabase secrets set POSTMARK_WEBHOOK_AUTHORIZED_IPS=${{ env.POSTMARK_WEBHOOK_AUTHORIZED_IPS }}
-                  npx supabase secrets set VITE_INBOUND_EMAIL=${{ env.VITE_INBOUND_EMAIL }}
-                  npx supabase secrets set VITE_ATTACHMENTS_BUCKET=${{ env.VITE_ATTACHMENTS_BUCKET }}
+                  node --input-type=module <<'NODE'
+                  import { writeFileSync } from "node:fs";
+                  const required = [
+                    "WORKBENCH_BOOTSTRAP_TOKEN",
+                    "WORKBENCH_PUBLIC_ORIGIN",
+                  ];
+                  const optional = [
+                    "POSTMARK_WEBHOOK_USER",
+                    "POSTMARK_WEBHOOK_PASSWORD",
+                    "POSTMARK_WEBHOOK_AUTHORIZED_IPS",
+                    "VITE_INBOUND_EMAIL",
+                    "VITE_ATTACHMENTS_BUCKET",
+                  ];
+                  const lines = [];
+                  for (const key of required) {
+                    const value = process.env[key];
+                    if (!value) throw new Error(`${key} is required`);
+                    lines.push(`${key}=${JSON.stringify(value)}`);
+                  }
+                  for (const key of optional) {
+                    const value = process.env[key];
+                    if (value) lines.push(`${key}=${JSON.stringify(value)}`);
+                  }
+                  writeFileSync(process.env.SECRET_FILE, `${lines.join("\n")}\n`, {
+                    mode: 0o600,
+                  });
+                  NODE
+                  npx supabase secrets set --env-file "$SECRET_FILE" >/dev/null
 
             - if: ${{ env.IS_SUPABASE_CONFIGURED }}
               name: 📡 Deploy supabase functions
@@ -223,11 +246,11 @@ jobs:
               run: echo ':warning:POSTMARK_WEBHOOK_USER secret is missing' >> $GITHUB_STEP_SUMMARY
 
             - if: ${{ !env.POSTMARK_WEBHOOK_PASSWORD }}
-              name: Check POSTMARK_WEBHOOK_USER secret
+              name: Check POSTMARK_WEBHOOK_PASSWORD secret
               run: echo ':warning:POSTMARK_WEBHOOK_PASSWORD secret is missing' >> $GITHUB_STEP_SUMMARY
 
             - if: ${{ !env.POSTMARK_WEBHOOK_AUTHORIZED_IPS }}
-              name: Check POSTMARK_WEBHOOK_USER secret
+              name: Check POSTMARK_WEBHOOK_AUTHORIZED_IPS secret
               run: echo ':warning:POSTMARK_WEBHOOK_AUTHORIZED_IPS secret is missing' >> $GITHUB_STEP_SUMMARY
 
             - if: ${{ !env.IS_SUPABASE_CONFIGURED }}

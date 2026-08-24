@@ -1,6 +1,7 @@
 import ExcelJS from "exceljs";
 import Papa from "papaparse";
 import { WorkerError } from "./errors";
+import { validateXlsxZipArchive } from "./xlsx-zip-security";
 
 const MAX_FILE_BYTES = 20 * 1024 * 1024;
 const MAX_ROWS = 20_000;
@@ -124,6 +125,7 @@ function excelCellValue(cell: ExcelJS.Cell): unknown {
 }
 
 async function parseXlsx(bytes: Uint8Array): Promise<ImportedRows> {
+  validateXlsxZipArchive(bytes);
   const workbook = new ExcelJS.Workbook();
   try {
     await workbook.xlsx.load(Buffer.from(bytes));

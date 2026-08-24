@@ -302,9 +302,15 @@ async function setupSupabaseSecrets({
     path.join(os.tmpdir(), "workbench-supabase-secrets-"),
   );
   const envFile = path.join(tempDirectory, "functions.env");
+  const publicOrigin = `https://${projectRef}.supabase.co`;
   fs.writeFileSync(
     envFile,
-    `SB_PUBLISHABLE_KEY=${publishableKey}\nWORKBENCH_BOOTSTRAP_TOKEN=${bootstrapToken}\n`,
+    [
+      `SB_PUBLISHABLE_KEY=${JSON.stringify(publishableKey)}`,
+      `WORKBENCH_BOOTSTRAP_TOKEN=${JSON.stringify(bootstrapToken)}`,
+      `WORKBENCH_PUBLIC_ORIGIN=${JSON.stringify(publicOrigin)}`,
+      "",
+    ].join("\n"),
     { mode: 0o600 },
   );
 

@@ -137,6 +137,16 @@ function includesValue(collection: unknown, expected: unknown): boolean {
     : false;
 }
 
+function intersectsValues(left: unknown, right: unknown): boolean {
+  return (
+    Array.isArray(left) &&
+    Array.isArray(right) &&
+    left.some((leftItem) =>
+      right.some((rightItem) => equals(leftItem, rightItem)),
+    )
+  );
+}
+
 export function evaluateRuleState(lead: Lead, inputRule: LeadRule): TriState {
   const rule = LeadRuleSchema.parse(inputRule);
   const actual = getPath(lead, rule.field);
@@ -185,10 +195,7 @@ export function evaluateRuleState(lead: Lead, inputRule: LeadRule): TriState {
         ? "no_match"
         : "match";
     case "intersects":
-      return Array.isArray(expected) &&
-        expected.some((item) => includesValue(actual, item))
-        ? "match"
-        : "no_match";
+      return intersectsValues(actual, expected) ? "match" : "no_match";
     default:
       return "unknown";
   }

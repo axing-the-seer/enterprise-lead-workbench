@@ -14,7 +14,7 @@ Atomic CRM comes with a CLI utility to create a backend instance on [supabase.co
 make supabase-remote-init
 ```
 
-The script will ask you for the Supabase instance name and a masked first-administrator bootstrap token, create the database, apply the migrations and deploy the edge functions. The token is sent to Supabase through a permission-restricted temporary environment file and is not written to the frontend environment. Finally, the script will create a `.env.production.local` file with your remote Supabase configuration.
+The script will ask you for the Supabase instance name and a masked first-administrator bootstrap token, create the database, apply the migrations and deploy the edge functions. The token and the fixed HTTPS `WORKBENCH_PUBLIC_ORIGIN` are sent to Supabase through a permission-restricted temporary environment file and are not written to the frontend environment. Finally, the script will create a `.env.production.local` file with your remote Supabase configuration.
 
 Before publishing the frontend URL, verify in **Authentication > Providers** that **Allow new users to sign up** is disabled. The database provisioning trigger rejects untrusted user creation as a second boundary, but the hosted Auth switch must still be closed to avoid exposing an unnecessary public endpoint.
 
@@ -50,13 +50,14 @@ npx supabase secrets set --env-file /path/to/private/workbench-bootstrap.env
 npx supabase functions deploy
 ```
 
-The private environment file must contain a high-entropy value of at least 24 bytes:
+The private environment file must contain a high-entropy value of at least 24 bytes and the exact public Supabase origin:
 
 ```text
 WORKBENCH_BOOTSTRAP_TOKEN=<private random value>
+WORKBENCH_PUBLIC_ORIGIN=https://<project-ref>.supabase.co
 ```
 
-Do not place this value in a `VITE_*` variable or in the repository. Before exposing the frontend, open **Authentication > Providers** in the Supabase Dashboard and turn off **Allow new users to sign up**. This repository also sets `auth.enable_signup`, `auth.email.enable_signup`, and `auth.sms.enable_signup` to `false` for local/self-hosted Auth, but hosted Auth settings must be verified separately.
+Do not place the bootstrap value in a `VITE_*` variable or in the repository. `WORKBENCH_PUBLIC_ORIGIN` is not secret, but production must set it explicitly to a clean HTTPS origin with no path, query string or fragment. The MCP function intentionally does not trust request forwarding headers as a fallback. Before exposing the frontend, open **Authentication > Providers** in the Supabase Dashboard and turn off **Allow new users to sign up**. This repository also sets `auth.enable_signup`, `auth.email.enable_signup`, and `auth.sms.enable_signup` to `false` for local/self-hosted Auth, but hosted Auth settings must be verified separately.
 
 The first administrator is created from the Web UI through the `bootstrap-admin` Edge Function. The function verifies the server secret, atomically claims the one-time database state, and uses the Auth Admin API. Direct `/auth/v1/signup` is not an application API. Later users must be created from the authenticated user-management screen or through an approved organization SSO configuration.
 

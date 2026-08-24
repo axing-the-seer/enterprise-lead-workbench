@@ -101,6 +101,70 @@ describe("信用代码优先去重与多源冲突", () => {
 });
 
 describe("三值规则与独立风险门禁", () => {
+  it("intersects 只匹配规范化后的完整标签，不把短词当成同义标签", () => {
+    const lead = normalizeKcRecord(
+      {
+        companyName: "精确标签测试企业",
+        tag: { blue: ["高新", "专精"], red: ["严重", "失信"] },
+      },
+      { retrievedAt: "2026-08-24T00:00:00.000Z" },
+    );
+
+    expect(
+      evaluateRuleState(lead, {
+        id: "qualification-exact",
+        label: "完整资质标签",
+        kind: "priority",
+        field: "tags.qualifications",
+        operator: "intersects",
+        value: ["高新技术企业", "专精特新"],
+        weight: 1,
+        onMatch: "score",
+        missingPolicy: "review",
+        enabled: true,
+      }),
+    ).toBe("no_match");
+    expect(
+      evaluateRuleState(lead, {
+        id: "risk-exact",
+        label: "完整风险标签",
+        kind: "risk_gate",
+        field: "tags.risk",
+        operator: "intersects",
+        value: ["严重违法", "失信被执行人"],
+        weight: 0,
+        onMatch: "block",
+        missingPolicy: "pass",
+        enabled: true,
+      }),
+    ).toBe("no_match");
+  });
+
+  it("intersects 保留 NFKC 与首尾空白规范化后的精确匹配", () => {
+    const lead = normalizeKcRecord(
+      {
+        companyName: "规范化标签测试企业",
+        tag: { blue: ["  高新技术企业  "] },
+      },
+      { retrievedAt: "2026-08-24T00:00:00.000Z" },
+    );
+
+    expect(
+      evaluateRuleState(lead, {
+        id: "qualification-normalized",
+        label: "规范化资质标签",
+        kind: "priority",
+        field: "tags.qualifications",
+        operator: "intersects",
+        value: ["高新技术企业"],
+        weight: 1,
+        onMatch: "score",
+        missingPolicy: "review",
+        enabled: true,
+      }),
+    ).toBe("match");
+  });
+
   it("字段缺失是 unknown，不伪造不匹配或零值", () => {
     const lead = normalizeKcRecord(
       { companyName: "规则缺失测试企业", status: "正常" },

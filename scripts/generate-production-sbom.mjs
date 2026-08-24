@@ -412,7 +412,10 @@ function matchEmbeddedPackage(occurrence) {
 }
 
 function normalizeText(value) {
-  return String(value).replace(/\r\n/g, "\n").trimEnd();
+  return String(value)
+    .replace(/\r\n/g, "\n")
+    .replace(/[ \t]+$/gm, "")
+    .trimEnd();
 }
 
 function addUnresolvedEmbeddedPackage(name) {
