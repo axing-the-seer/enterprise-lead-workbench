@@ -8,9 +8,12 @@ import { execFileSync } from "node:child_process";
 import { mkdtempSync, writeFileSync, mkdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { globToRegexSource, relevanceRegex } from "../pending-deploys.mjs";
 
-const SCRIPT = new URL("../pending-deploys.mjs", import.meta.url).pathname;
+const SCRIPT = fileURLToPath(
+  new URL("../pending-deploys.mjs", import.meta.url),
+);
 
 function git(cwd, ...args) {
   return execFileSync("git", args, { cwd }).toString();

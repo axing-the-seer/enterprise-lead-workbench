@@ -1,559 +1,944 @@
+// Supabase Edge uses version-pinned URL imports for its runtime-only modules.
+// deno-lint-ignore-file no-import-prefix no-unversioned-import
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
-import { McpServer } from "npm:@modelcontextprotocol/sdk@1.28.0/server/mcp.js";
-import { WebStandardStreamableHTTPServerTransport } from "npm:@modelcontextprotocol/sdk@1.28.0/server/webStandardStreamableHttp.js";
-import { createRemoteJWKSet, jwtVerify, decodeJwt } from "npm:jose@5";
-import { Pool } from "https://deno.land/x/postgres@v0.17.0/mod.ts";
-import { z } from "npm:zod@^3.25";
-import { validateReadOnly, validateWrite } from "./validateSql.ts";
-import { TASK_LIST_HTML, TASK_LIST_UI_URI } from "./taskListUi.ts";
+import { McpServer } from "npm:@modelcontextprotocol/sdk@1.30.0/server/mcp.js";
+import { WebStandardStreamableHTTPServerTransport } from "npm:@modelcontextprotocol/sdk@1.30.0/server/webStandardStreamableHttp.js";
+import { createRemoteJWKSet, jwtVerify } from "npm:jose@5";
+import {
+  createClient,
+  type SupabaseClient,
+} from "jsr:@supabase/supabase-js@2.112.3";
+import type { z } from "zod";
 import { corsHeaders } from "../_shared/cors.ts";
+import {
+  renderAgentCompanyReport,
+  type CompanyAgentAnalysis,
+  type ReportEvidence,
+} from "./report.ts";
+import {
+  getCompanyReportContextInputSchema,
+  getCompanyEvidenceAndFactsInputSchema,
+  listCompaniesInputSchema,
+  listCompanyListsInputSchema,
+  listCompanyReportsInputSchema,
+  listExportsInputSchema,
+  listIngestionJobsInputSchema,
+  listRuleResultsInputSchema,
+  listRuleRunsInputSchema,
+  listRuleSetsInputSchema,
+  listRuleSetVersionsInputSchema,
+  listSourceConnectionsInputSchema,
+  listSourceQueriesInputSchema,
+  listWorkspacesInputSchema,
+  parseSavedRuleTemplateMcpResult,
+  READ_PROJECTIONS,
+  readCompanyReportEvidenceInputSchema,
+  runRulesetInputSchema,
+  saveRuleTemplateInputSchema,
+  sanitizeMcpOutput,
+  startExportInputSchema,
+  startIngestionQueryMcpInputSchema,
+  submitCompanyReportAnalysisInputSchema,
+  toEnqueueWorkbenchRpc,
+  toSaveRuleTemplateMcpRpc,
+  type WorkbenchMcpQueuedWriteToolName,
+} from "./contracts.ts";
 
-// --- Environment & Config ---
-
-const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
+const SUPABASE_URL = Deno.env.get("SUPABASE_URL") ?? "";
+const SUPABASE_PUBLISHABLE_KEY =
+  Deno.env.get("SB_PUBLISHABLE_KEY") ?? Deno.env.get("SUPABASE_ANON_KEY") ?? "";
 const SUPABASE_JWT_ISSUER =
   Deno.env.get("SB_JWT_ISSUER") ?? `${SUPABASE_URL}/auth/v1`;
-const CRM_BASE_URL = (Deno.env.get("CRM_BASE_URL") ?? "").replace(/\/$/, "");
+const SUPABASE_JWT_AUDIENCE =
+  Deno.env.get("SB_JWT_AUDIENCE") ?? "authenticated";
+const WORKBENCH_PUBLIC_ORIGIN = Deno.env.get("WORKBENCH_PUBLIC_ORIGIN") ?? "";
+
+if (!SUPABASE_URL) throw new Error("SUPABASE_URL is required");
+if (!SUPABASE_PUBLISHABLE_KEY) {
+  throw new Error("SB_PUBLISHABLE_KEY is required");
+}
 
 const JWKS = createRemoteJWKSet(
   new URL(`${SUPABASE_URL}/auth/v1/.well-known/jwks.json`),
 );
 
-const connectionString =
-  Deno.env.get("SUPABASE_DB_URL") ||
-  "postgresql://postgres:postgres@db:5432/postgres";
-const pool = new Pool(connectionString, 1);
+interface AuthInfo {
+  token: string;
+  userId: string;
+}
 
-// --- URL Helpers ---
+interface DataError {
+  code?: string;
+}
 
 function getBaseUrl(req: Request): string {
-  const forwardedHost = req.headers.get("x-forwarded-host");
-  if (forwardedHost) {
-    // When behind a proxy (ngrok, production), always use HTTPS.
-    // x-forwarded-proto may not survive the Supabase gateway chain.
-    return `https://${forwardedHost}`;
+  if (WORKBENCH_PUBLIC_ORIGIN) {
+    try {
+      const configured = new URL(WORKBENCH_PUBLIC_ORIGIN);
+      if (
+        (configured.protocol === "http:" || configured.protocol === "https:") &&
+        !configured.username &&
+        !configured.password &&
+        configured.pathname === "/" &&
+        !configured.search &&
+        !configured.hash
+      ) {
+        return configured.origin;
+      }
+    } catch {
+      // Fall back to validated proxy/request headers below.
+    }
+  }
+  const forwardedHost = req.headers
+    .get("x-forwarded-host")
+    ?.split(",")[0]
+    ?.trim();
+  if (forwardedHost && /^[A-Za-z0-9.-]+(?::[0-9]{1,5})?$/.test(forwardedHost)) {
+    const forwardedProtocol = req.headers
+      .get("x-forwarded-proto")
+      ?.split(",")[0]
+      ?.trim()
+      .toLowerCase();
+    const isLoopback = /^(?:localhost|127\.0\.0\.1)(?::[0-9]{1,5})?$/.test(
+      forwardedHost,
+    );
+    const protocol =
+      forwardedProtocol === "http" || forwardedProtocol === "https"
+        ? forwardedProtocol
+        : isLoopback
+          ? "http"
+          : "https";
+    return `${protocol}://${forwardedHost}`;
   }
   const url = new URL(req.url);
-  const host = url.host;
-  // Supabase edge functions see http:// internally, but are served over HTTPS publicly
-  const proto =
-    host.includes("localhost") || host.includes("127.0.0.1") ? "http" : "https";
-  return `${proto}://${host}`;
+  const protocol =
+    url.hostname === "localhost" || url.hostname === "127.0.0.1"
+      ? "http"
+      : "https";
+  return `${protocol}://${url.host}`;
 }
 
 function getResourceMetadataUrl(req: Request): string {
   return `${getBaseUrl(req)}/functions/v1/mcp/oauth-protected-resource`;
 }
 
-// --- Auth ---
-
-interface AuthInfo {
-  token: string;
-  userId: string;
-  role?: string;
-  clientId?: string;
-}
-
 async function validateToken(req: Request): Promise<AuthInfo | null> {
-  const authHeader = req.headers.get("authorization");
-  if (!authHeader) return null;
-
-  const [bearer, token] = authHeader.split(" ");
-  if (bearer !== "Bearer" || !token) return null;
+  const authorization = req.headers.get("authorization") ?? "";
+  const match = /^Bearer ([^\s]+)$/.exec(authorization);
+  if (!match) return null;
 
   try {
-    const { payload } = await jwtVerify(token, JWKS, {
+    const { payload } = await jwtVerify(match[1], JWKS, {
       issuer: SUPABASE_JWT_ISSUER,
+      audience: SUPABASE_JWT_AUDIENCE,
     });
-
     if (!payload.sub) return null;
-
-    return {
-      token,
-      userId: payload.sub,
-      role: payload.role as string | undefined,
-      clientId: payload.client_id as string | undefined,
-    };
+    if (payload.role !== "authenticated") return null;
+    return { token: match[1], userId: payload.sub };
   } catch {
     return null;
   }
 }
 
-// --- Database: get_schema ---
+function createUserClient(token: string): SupabaseClient {
+  return createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, {
+    global: { headers: { Authorization: `Bearer ${token}` } },
+    auth: {
+      autoRefreshToken: false,
+      persistSession: false,
+      detectSessionInUrl: false,
+    },
+  });
+}
 
-async function getSchemaData(): Promise<string> {
-  const client = await pool.connect();
-  try {
-    // Query 1: All columns from public schema
-    const columnsResult = await client.queryObject<{
-      table_name: string;
-      column_name: string;
-      data_type: string;
-      is_nullable: string;
-      column_default: string | null;
-      table_type: string;
-    }>(`
-      SELECT
-        c.table_name,
-        c.column_name,
-        c.data_type,
-        c.is_nullable,
-        c.column_default,
-        t.table_type
-      FROM information_schema.columns c
-      JOIN information_schema.tables t
-        ON c.table_name = t.table_name AND c.table_schema = t.table_schema
-      WHERE c.table_schema = 'public'
-      ORDER BY c.table_name, c.ordinal_position
-    `);
-
-    // Query 2: Foreign key relationships
-    const fkResult = await client.queryObject<{
-      source_table: string;
-      source_column: string;
-      target_table: string;
-      target_column: string;
-    }>(`
-      SELECT
-        src.relname AS source_table,
-        src_att.attname AS source_column,
-        tgt.relname AS target_table,
-        tgt_att.attname AS target_column
-      FROM pg_catalog.pg_constraint con
-      JOIN pg_catalog.pg_class src ON con.conrelid = src.oid
-      JOIN pg_catalog.pg_namespace nsp ON src.relnamespace = nsp.oid
-      JOIN pg_catalog.pg_class tgt ON con.confrelid = tgt.oid
-      JOIN pg_catalog.pg_attribute src_att
-        ON src_att.attrelid = con.conrelid AND src_att.attnum = ANY(con.conkey)
-      JOIN pg_catalog.pg_attribute tgt_att
-        ON tgt_att.attrelid = con.confrelid AND tgt_att.attnum = ANY(con.confkey)
-      WHERE con.contype = 'f' AND nsp.nspname = 'public'
-      ORDER BY src.relname
-    `);
-
-    // Group columns by table
-    const tables = new Map<
-      string,
+function success(payload: Record<string, unknown>) {
+  const safePayload = sanitizeMcpOutput(payload) as Record<string, unknown>;
+  return {
+    content: [
       {
-        type: string;
-        columns: {
-          name: string;
-          type: string;
-          nullable: boolean;
-          default: string | null;
-        }[];
-      }
-    >();
-    for (const row of columnsResult.rows) {
-      if (!tables.has(row.table_name)) {
-        tables.set(row.table_name, {
-          type: row.table_type === "VIEW" ? "View" : "Table",
-          columns: [],
-        });
-      }
-      tables.get(row.table_name)!.columns.push({
-        name: row.column_name,
-        type: row.data_type,
-        nullable: row.is_nullable === "YES",
-        default: row.column_default,
-      });
-    }
-
-    // Group foreign keys by source table
-    const foreignKeys = new Map<
-      string,
-      { source_column: string; target_table: string; target_column: string }[]
-    >();
-    for (const row of fkResult.rows) {
-      if (!foreignKeys.has(row.source_table)) {
-        foreignKeys.set(row.source_table, []);
-      }
-      foreignKeys.get(row.source_table)!.push({
-        source_column: row.source_column,
-        target_table: row.target_table,
-        target_column: row.target_column,
-      });
-    }
-
-    // Format output
-    const lines: string[] = [];
-    for (const [tableName, table] of tables) {
-      lines.push(`${table.type}: ${tableName}`);
-      for (const col of table.columns) {
-        const parts = [`  - ${col.name}: ${col.type}`];
-        if (col.nullable) parts.push("(nullable)");
-        if (col.default) parts.push(`default: ${col.default}`);
-        lines.push(parts.join(" "));
-      }
-      const fks = foreignKeys.get(tableName);
-      if (fks && fks.length > 0) {
-        lines.push("  Foreign Keys:");
-        for (const fk of fks) {
-          lines.push(
-            `    - ${fk.source_column} -> ${fk.target_table}.${fk.target_column}`,
-          );
-        }
-      }
-      lines.push("");
-    }
-
-    return lines.join("\n");
-  } finally {
-    client.release();
-  }
+        type: "text" as const,
+        text: JSON.stringify(safePayload, null, 2),
+      },
+    ],
+    structuredContent: safePayload,
+  };
 }
 
-// --- Database: query with RLS ---
-
-async function executeQueryWithRLS(
-  sql: string,
-  userToken: string,
-  validate: (sql: string) => string | null,
-): Promise<
-  { success: true; data: unknown[] } | { success: false; error: string }
-> {
-  const validationError = validate(sql);
-  if (validationError) {
-    return { success: false, error: validationError };
-  }
-
-  const client = await pool.connect();
-  try {
-    const jwtClaims = decodeJwt(userToken);
-    const claimsJson = JSON.stringify(jwtClaims);
-
-    await client.queryObject("BEGIN");
-    // set_config(..., is_local=true) is the parameterized equivalent of
-    // SET LOCAL — avoids interpolating JWT claims into a SQL string.
-    await client.queryObject(
-      "SELECT set_config('role', 'authenticated', true)",
-    );
-    await client.queryObject({
-      text: "SELECT set_config('request.jwt.claims', $1, true)",
-      args: [claimsJson],
-    });
-
-    const result = await client.queryObject(sql);
-    await client.queryObject("COMMIT");
-
-    // Convert BigInt values to numbers (Deno Postgres returns bigint for
-    // PostgreSQL int8/count results, but JSON.stringify can't handle them)
-    const rows = JSON.parse(
-      JSON.stringify(result.rows, (_key, value) =>
-        typeof value === "bigint" ? Number(value) : value,
-      ),
-    );
-    return { success: true, data: rows };
-  } catch (error) {
-    try {
-      await client.queryObject("ROLLBACK");
-    } catch {
-      // Ignore rollback errors
-    }
-    const message =
-      error instanceof AggregateError
-        ? error.errors.map((e) => e.message).join("; ")
-        : error instanceof Error
-          ? error.message
-          : String(error);
-    return { success: false, error: message };
-  } finally {
-    client.release();
-  }
+function failure(operation: string, error: DataError | null) {
+  const code =
+    typeof error?.code === "string" && /^[A-Za-z0-9_.-]{1,32}$/.test(error.code)
+      ? error.code
+      : "DATA_ACCESS_FAILED";
+  console.error("Workbench MCP operation failed", { operation, code });
+  return {
+    content: [
+      {
+        type: "text" as const,
+        text: `操作失败（${code}）。请检查工作空间权限和记录状态。`,
+      },
+    ],
+    isError: true,
+  };
 }
 
-// --- MCP Server Factory ---
+function toolFailure(message: string) {
+  return {
+    content: [{ type: "text" as const, text: message }],
+    isError: true,
+  };
+}
+
+async function loadReportContext(
+  client: SupabaseClient,
+  workspaceId: string,
+  evidenceJobId: string,
+) {
+  const { data: job, error: jobError } = await client
+    .from("ingestion_jobs")
+    .select(READ_PROJECTIONS.ingestionJobs)
+    .eq("workspace_id", workspaceId)
+    .eq("id", evidenceJobId)
+    .single();
+  if (jobError || !job) return { error: jobError ?? { code: "P0002" } };
+  const result = objectRecord(job.result);
+  const companyId = String(result.company_id ?? "");
+  const snapshotId = String(result.source_snapshot_id ?? "");
+  if (!/^[1-9][0-9]*$/.test(companyId) || !isUuid(snapshotId)) {
+    return { error: { code: "REPORT_EVIDENCE_INCOMPLETE" } };
+  }
+  const [companyResult, snapshotResult, factsResult] = await Promise.all([
+    client
+      .from("companies")
+      .select(READ_PROJECTIONS.companies)
+      .eq("workspace_id", workspaceId)
+      .eq("id", companyId)
+      .single(),
+    client
+      .from("source_snapshots")
+      .select("id,workspace_id,company_id,normalized_payload,captured_at")
+      .eq("workspace_id", workspaceId)
+      .eq("id", snapshotId)
+      .single(),
+    client
+      .from("company_field_facts")
+      .select(READ_PROJECTIONS.companyFacts)
+      .eq("workspace_id", workspaceId)
+      .eq("company_id", companyId)
+      .eq("is_current", true)
+      .order("observed_at", { ascending: false })
+      .limit(200),
+  ]);
+  if (companyResult.error || !companyResult.data) {
+    return { error: companyResult.error ?? { code: "P0002" } };
+  }
+  if (snapshotResult.error || !snapshotResult.data) {
+    return { error: snapshotResult.error ?? { code: "P0002" } };
+  }
+  if (factsResult.error) return { error: factsResult.error };
+  const normalized = objectRecord(snapshotResult.data.normalized_payload);
+  const evidence = normalizeEvidence(normalized.evidence);
+  return {
+    job,
+    company: companyResult.data,
+    facts: factsResult.data ?? [],
+    normalized,
+    evidence,
+  };
+}
+
+function normalizeEvidence(
+  value: unknown,
+): Array<ReportEvidence & Record<string, unknown>> {
+  if (!Array.isArray(value)) return [];
+  return value.slice(0, 50).flatMap((entry, index) => {
+    const item = objectRecord(entry);
+    const url = typeof item.url === "string" ? item.url : "";
+    const title = typeof item.title === "string" ? item.title : "";
+    if (!/^https?:\/\//i.test(url) || !title) return [];
+    return [
+      {
+        ...item,
+        id:
+          typeof item.id === "string" && /^ev-[0-9]{3}$/.test(item.id)
+            ? item.id
+            : `ev-${String(index + 1).padStart(3, "0")}`,
+        title,
+        url,
+        sourceName:
+          typeof item.sourceName === "string" ? item.sourceName : "公开网页",
+        kind: typeof item.kind === "string" ? item.kind : "other",
+        publishedAt:
+          typeof item.publishedAt === "string" ? item.publishedAt : null,
+        capturedAt:
+          typeof normalizedDate(item.retrievedAt) === "string"
+            ? normalizedDate(item.retrievedAt)
+            : null,
+      },
+    ];
+  });
+}
+
+function evidenceIndex(item: ReportEvidence & Record<string, unknown>) {
+  return {
+    id: item.id,
+    kind: item.kind,
+    title: item.title,
+    sourceName: item.sourceName,
+    url: item.url,
+    relevance: item.relevance ?? "broad_context",
+    publishedAt: item.publishedAt ?? null,
+    capturedAt: item.capturedAt ?? null,
+  };
+}
+
+function objectRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+}
+
+function normalizedDate(value: unknown) {
+  return typeof value === "string" && !Number.isNaN(Date.parse(value))
+    ? value
+    : null;
+}
+
+function isUuid(value: string) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+    value,
+  );
+}
+
+function analysisEvidenceIds(analysis: CompanyAgentAnalysis) {
+  const values = [...analysis.executiveEvidenceIds];
+  for (const section of [
+    analysis.businessProfile,
+    analysis.growthSignals,
+    analysis.recentEvents,
+    analysis.opportunities,
+    analysis.risks,
+    analysis.recommendedActions,
+  ]) {
+    for (const item of section) values.push(...item.evidenceIds);
+  }
+  return [...new Set(values)];
+}
+
+function literalSubstringPattern(value: string): string {
+  return `%${value.replace(/[\\%_]/g, "\\$&")}%`;
+}
+
+async function enqueue(
+  client: SupabaseClient,
+  toolName: WorkbenchMcpQueuedWriteToolName,
+  input: unknown,
+) {
+  const request = toEnqueueWorkbenchRpc(toolName, input);
+  const { data, error } = await client.rpc("enqueue_workbench_job", request);
+  if (error) return failure(toolName, error);
+  const row = Array.isArray(data) ? data[0] : data;
+  return success({
+    jobId: row?.job_id ?? null,
+    jobType: row?.job_type ?? null,
+    status: row?.status ?? "queued",
+  });
+}
 
 function createMcpServer(authInfo: AuthInfo): McpServer {
   const server = new McpServer({
-    name: "atomic-crm",
+    name: "enterprise-lead-workbench",
     version: "1.0.0",
   });
+  const client = createUserClient(authInfo.token);
 
   server.registerTool(
-    "get_schema",
+    "list_workspaces",
     {
-      title: "Get Database Schema",
+      title: "列出工作空间",
+      description: "列出当前用户有权访问的企业名单工作空间。",
+      inputSchema: listWorkspacesInputSchema,
+      annotations: { readOnlyHint: true },
+    },
+    async (_args: z.infer<typeof listWorkspacesInputSchema>) => {
+      const { data, error } = await client
+        .from("workspaces")
+        .select(READ_PROJECTIONS.workspaces)
+        .order("updated_at", { ascending: false })
+        .limit(100);
+      if (error) return failure("list_workspaces", error);
+      return success({ items: data ?? [], count: data?.length ?? 0 });
+    },
+  );
+
+  server.registerTool(
+    "list_source_connections",
+    {
+      title: "列出数据源连接",
       description:
-        "Retrieve the database schema for the user's Atomic CRM instance including all tables, views, columns, types, and foreign key relationships. Views (like contacts_summary, companies_summary) are read-only and provide pre-joined/aggregated data. Use them for search and list queries.",
+        "列出工作空间的数据源连接状态和能力；不返回凭证引用或连接秘密。",
+      inputSchema: listSourceConnectionsInputSchema,
       annotations: { readOnlyHint: true },
     },
-    async () => {
-      const schema = await getSchemaData();
-      return { content: [{ type: "text" as const, text: schema }] };
+    async (args: z.infer<typeof listSourceConnectionsInputSchema>) => {
+      let query = client
+        .from("source_connections_safe")
+        .select(READ_PROJECTIONS.sourceConnections)
+        .eq("workspace_id", args.workspaceId)
+        .order("updated_at", { ascending: false })
+        .limit(args.limit);
+      if (args.provider) query = query.eq("provider", args.provider);
+      if (args.status) query = query.eq("status", args.status);
+      const { data, error } = await query;
+      if (error) return failure("list_source_connections", error);
+      return success({ items: data ?? [], count: data?.length ?? 0 });
     },
   );
 
   server.registerTool(
-    "query",
+    "list_source_queries",
     {
-      title: "Query CRM Data",
-      description: `Read data from the user's CRM instance using SQL SELECT queries.
-
-IMPORTANT: Before using this tool, you MUST call the get_schema tool first to understand what tables and columns are available in the database.
-
-Use this tool when the user asks about their CRM data such as:
-- Contacts, companies, and deals
-- Sales pipeline and forecasting data
-- Customer interactions and notes
-- Tasks and follow-ups
-- Custom fields and metadata
-
-Row Level Security (RLS) is enforced - queries automatically return only data the authenticated user has permission to access.
-
-Use the *_summary views (contacts_summary, companies_summary) for queries that need aggregated data or search capabilities.
-
-To filter by the current user, if the table has a sales_id column, add a WHERE sales_id = auth.uid() clause to your query.
-
-This tool only supports SELECT queries. For INSERT, UPDATE, or DELETE operations, use the mutate tool.
-
-Examples:
-- "SELECT id, first_name, last_name, email_fts FROM contacts_summary WHERE email_fts LIKE '%@company.com%'"
-- "SELECT name, stage, amount FROM deals WHERE created_at > NOW() - INTERVAL '30 days' ORDER BY amount DESC"
-- "SELECT COUNT(*) as total_tasks, type FROM tasks WHERE done_date IS NULL GROUP BY type"
-- "SELECT c.first_name, c.last_name, co.name as company_name FROM contacts c JOIN companies co ON c.company_id = co.id WHERE co.sector = 'Technology'"`,
-      inputSchema: z.object({
-        sql: z.string().describe("The SQL SELECT query to execute"),
-      }),
+      title: "列出来源查询",
+      description: "列出已保存的数据源查询条件与执行状态。",
+      inputSchema: listSourceQueriesInputSchema,
       annotations: { readOnlyHint: true },
     },
-    async ({ sql }: { sql: string }) => {
-      // eslint-disable-next-line no-console
-      console.log(`[MCP query] user=${authInfo.userId} sql=${sql}`);
-      const result = await executeQueryWithRLS(
-        sql,
-        authInfo.token,
-        validateReadOnly,
-      );
-      if (result.success) {
-        return {
-          content: [
-            {
-              type: "text" as const,
-              text: JSON.stringify(result.data, null, 2),
-            },
-          ],
-        };
+    async (args: z.infer<typeof listSourceQueriesInputSchema>) => {
+      let query = client
+        .from("source_queries")
+        .select(READ_PROJECTIONS.sourceQueries)
+        .eq("workspace_id", args.workspaceId)
+        .order("created_at", { ascending: false })
+        .limit(args.limit);
+      if (args.sourceConnectionId) {
+        query = query.eq("source_connection_id", args.sourceConnectionId);
       }
-      return {
-        content: [{ type: "text" as const, text: `Error: ${result.error}` }],
-        isError: true,
-      };
+      if (args.status) query = query.eq("status", args.status);
+      const { data, error } = await query;
+      if (error) return failure("list_source_queries", error);
+      return success({ items: data ?? [], count: data?.length ?? 0 });
     },
   );
 
   server.registerTool(
-    "mutate",
+    "list_ingestion_jobs",
     {
-      title: "Mutate CRM Data",
-      description: `Create, update, or delete data in the user's CRM instance using SQL.
-
-IMPORTANT: Before using this tool, you MUST call the get_schema tool first to understand what tables and columns are available in the database.
-
-Use this tool for data modifications such as:
-- Creating new contacts, companies, deals, tasks, or notes
-- Updating existing records
-- Deleting records
-
-Row Level Security (RLS) is enforced - mutations only affect data the authenticated user has permission to modify.
-
-IMPORTANT: Never specify sales_id in INSERT or UPDATE statements — it is automatically set to the authenticated user by a database trigger.
-
-For read-only queries, use the query tool instead.
-
-Examples:
-- "INSERT INTO contacts (first_name, last_name, email) VALUES ('John', 'Doe', 'john@example.com')"
-- "UPDATE deals SET stage = 'won-deal' WHERE id = 123"
-- "DELETE FROM tasks WHERE id = 456"`,
-      inputSchema: z.object({
-        sql: z
-          .string()
-          .describe("The SQL INSERT, UPDATE, or DELETE statement to execute"),
-      }),
-      annotations: { destructiveHint: true },
+      title: "列出数据处理任务",
+      description:
+        "查看查询、导入、核验和 Ego Lite 公开信息报告任务状态。返回安全化任务参数和报告元数据，但不返回供应商原始数据或 HTML 正文。",
+      inputSchema: listIngestionJobsInputSchema,
+      annotations: { readOnlyHint: true },
     },
-    async ({ sql }: { sql: string }) => {
-      // eslint-disable-next-line no-console
-      console.log(`[MCP mutate] user=${authInfo.userId} sql=${sql}`);
-      const result = await executeQueryWithRLS(
-        sql,
-        authInfo.token,
-        validateWrite,
-      );
-      if (result.success) {
+    async (args: z.infer<typeof listIngestionJobsInputSchema>) => {
+      let query = client
+        .from("ingestion_jobs")
+        .select(READ_PROJECTIONS.ingestionJobs)
+        .eq("workspace_id", args.workspaceId)
+        .order("requested_at", { ascending: false })
+        .limit(args.limit);
+      if (args.status) query = query.eq("status", args.status);
+      if (args.jobKind) query = query.eq("job_kind", args.jobKind);
+      const { data, error } = await query;
+      if (error) return failure("list_ingestion_jobs", error);
+      const items = (data ?? []).map((job) => {
+        if (
+          !job.result ||
+          typeof job.result !== "object" ||
+          Array.isArray(job.result)
+        ) {
+          return job;
+        }
+        const { report_html: reportHtml, ...safeResult } = job.result as Record<
+          string,
+          unknown
+        >;
         return {
-          content: [
-            {
-              type: "text" as const,
-              text: JSON.stringify(result.data, null, 2),
-            },
-          ],
+          ...job,
+          result: {
+            ...safeResult,
+            reportAvailable: typeof reportHtml === "string",
+          },
         };
-      }
-      return {
-        content: [{ type: "text" as const, text: `Error: ${result.error}` }],
-        isError: true,
-      };
+      });
+      return success({ items, count: items.length });
     },
   );
 
-  // --- UI resource for the task-list MCP App ---
-
-  // Inject the CRM base URL into the task-list guest HTML
-  // so contact names can link back to the CRM
-  const taskListHtml = TASK_LIST_HTML.replace(
-    /__CRM_BASE_URL__/g,
-    CRM_BASE_URL,
-  );
-
-  server.registerResource(
-    "task-list-ui",
-    TASK_LIST_UI_URI,
+  server.registerTool(
+    "list_company_lists",
     {
-      title: "Task List UI",
-      description: "Interactive list of tasks with mark-as-done buttons.",
-      mimeType: "text/html;profile=mcp-app",
+      title: "列出企业名单",
+      description: "列出工作空间内的企业名单批次。",
+      inputSchema: listCompanyListsInputSchema,
+      annotations: { readOnlyHint: true },
     },
-    async (uri: URL) => ({
-      contents: [
+    async (args: z.infer<typeof listCompanyListsInputSchema>) => {
+      let query = client
+        .from("company_lists")
+        .select(READ_PROJECTIONS.companyLists)
+        .eq("workspace_id", args.workspaceId)
+        .order("updated_at", { ascending: false })
+        .limit(args.limit);
+      if (args.status) query = query.eq("status", args.status);
+      const { data, error } = await query;
+      if (error) return failure("list_company_lists", error);
+      return success({ items: data ?? [], count: data?.length ?? 0 });
+    },
+  );
+
+  server.registerTool(
+    "list_companies",
+    {
+      title: "检索企业",
+      description: "按工作空间检索规范化企业，可限定企业名单和企业名称。",
+      inputSchema: listCompaniesInputSchema,
+      annotations: { readOnlyHint: true },
+    },
+    async (args: z.infer<typeof listCompaniesInputSchema>) => {
+      if (args.companyListId) {
+        let query = client
+          .from("company_list_members")
+          .select(
+            `membership_status,company:companies!company_list_members_company_fkey(${READ_PROJECTIONS.companies})`,
+          )
+          .eq("workspace_id", args.workspaceId)
+          .eq("company_list_id", args.companyListId)
+          .order("added_at", { ascending: false })
+          .limit(args.limit);
+        if (args.name) {
+          query = query.ilike(
+            "company.name",
+            literalSubstringPattern(args.name),
+          );
+        }
+        const { data, error } = await query;
+        if (error) return failure("list_companies", error);
+        const items = (data ?? []).map((row) => ({
+          ...(row.company && typeof row.company === "object"
+            ? row.company
+            : {}),
+          membershipStatus: row.membership_status,
+        }));
+        return success({ items, count: items.length });
+      }
+
+      let query = client
+        .from("companies")
+        .select(READ_PROJECTIONS.companies)
+        .eq("workspace_id", args.workspaceId)
+        .order("updated_at", { ascending: false })
+        .limit(args.limit);
+      if (args.name) {
+        query = query.ilike("name", literalSubstringPattern(args.name));
+      }
+      const { data, error } = await query;
+      if (error) return failure("list_companies", error);
+      return success({ items: data ?? [], count: data?.length ?? 0 });
+    },
+  );
+
+  server.registerTool(
+    "get_company_evidence_and_facts",
+    {
+      title: "获取企业证据和字段事实",
+      description: "返回企业的规范化字段事实与证据摘要；不返回供应商原始快照。",
+      inputSchema: getCompanyEvidenceAndFactsInputSchema,
+      annotations: { readOnlyHint: true },
+    },
+    async (args: z.infer<typeof getCompanyEvidenceAndFactsInputSchema>) => {
+      let factsQuery = client
+        .from("company_field_facts")
+        .select(READ_PROJECTIONS.companyFacts)
+        .eq("workspace_id", args.workspaceId)
+        .eq("company_id", args.companyId)
+        .order("observed_at", { ascending: false })
+        .limit(args.factLimit);
+      if (args.currentFactsOnly) factsQuery = factsQuery.eq("is_current", true);
+
+      const [evidenceResult, factResult] = await Promise.all([
+        client
+          .from("company_evidence")
+          .select(READ_PROJECTIONS.companyEvidence)
+          .eq("workspace_id", args.workspaceId)
+          .eq("company_id", args.companyId)
+          .order("observed_at", { ascending: false })
+          .limit(args.evidenceLimit),
+        factsQuery,
+      ]);
+      if (evidenceResult.error) {
+        return failure("get_company_evidence_and_facts", evidenceResult.error);
+      }
+      if (factResult.error) {
+        return failure("get_company_evidence_and_facts", factResult.error);
+      }
+      return success({
+        companyId: args.companyId,
+        evidence: evidenceResult.data ?? [],
+        facts: factResult.data ?? [],
+      });
+    },
+  );
+
+  server.registerTool(
+    "get_company_report_context",
+    {
+      title: "获取企业报告分析上下文",
+      description:
+        "读取已完成的 Ego Lite 证据任务，返回企业工商概况、字段事实和精简证据目录。先读目录，再按需调用 read_company_report_evidence，避免一次性消耗过多上下文。",
+      inputSchema: getCompanyReportContextInputSchema,
+      annotations: { readOnlyHint: true },
+    },
+    async (args: z.infer<typeof getCompanyReportContextInputSchema>) => {
+      const context = await loadReportContext(
+        client,
+        args.workspaceId,
+        args.evidenceJobId,
+      );
+      if ("error" in context) {
+        return failure(
+          "get_company_report_context",
+          context.error ?? { code: "DATA_ACCESS_FAILED" },
+        );
+      }
+      return success({
+        evidenceJob: {
+          id: context.job.id,
+          status: context.job.status,
+          completedAt: context.job.completed_at,
+          coverage: context.normalized.coverage ?? [],
+        },
+        company: context.company,
+        facts: context.facts,
+        evidenceIndex: context.evidence.map(evidenceIndex),
+        evidenceCount: context.evidence.length,
+        nextStep:
+          "选择与判断相关的证据编号，通过 read_company_report_evidence 分批读取；完成分析后调用 submit_company_report_analysis。",
+      });
+    },
+  );
+
+  server.registerTool(
+    "read_company_report_evidence",
+    {
+      title: "读取企业报告证据正文",
+      description:
+        "按证据编号读取 Ego Lite 保存的摘要或正文。一次最多 10 条，只读取形成当前判断所需的材料。",
+      inputSchema: readCompanyReportEvidenceInputSchema,
+      annotations: { readOnlyHint: true },
+    },
+    async (args: z.infer<typeof readCompanyReportEvidenceInputSchema>) => {
+      const context = await loadReportContext(
+        client,
+        args.workspaceId,
+        args.evidenceJobId,
+      );
+      if ("error" in context) {
+        return failure(
+          "read_company_report_evidence",
+          context.error ?? { code: "DATA_ACCESS_FAILED" },
+        );
+      }
+      const requested = new Set(args.evidenceIds);
+      const items = context.evidence.filter((item) => requested.has(item.id));
+      if (items.length !== requested.size) {
+        return toolFailure(
+          "部分证据编号不存在或不属于该报告任务，请重新读取证据目录。",
+        );
+      }
+      return success({
+        evidenceJobId: args.evidenceJobId,
+        items: items.map((item) => ({
+          ...evidenceIndex(item),
+          snippet: item.snippet ?? item.excerpt ?? "",
+          content: item.content ?? "",
+          query: item.query ?? "",
+          linkKind: item.linkKind ?? "direct",
+        })),
+      });
+    },
+  );
+
+  server.registerTool(
+    "list_company_reports",
+    {
+      title: "列出 Agent 企业报告",
+      description:
+        "列出已经由 WorkBuddy、Codex 或其他 Agent 完成分析并回写的企业报告。",
+      inputSchema: listCompanyReportsInputSchema,
+      annotations: { readOnlyHint: true },
+    },
+    async (args: z.infer<typeof listCompanyReportsInputSchema>) => {
+      let query = client
+        .from("company_reports")
+        .select(READ_PROJECTIONS.companyReports)
+        .eq("workspace_id", args.workspaceId)
+        .order("submitted_at", { ascending: false })
+        .limit(args.limit);
+      if (args.companyId) query = query.eq("company_id", args.companyId);
+      if (args.evidenceJobId)
+        query = query.eq("evidence_job_id", args.evidenceJobId);
+      if (args.currentOnly) query = query.eq("is_current", true);
+      const { data, error } = await query;
+      if (error) return failure("list_company_reports", error);
+      return success({ items: data ?? [], count: data?.length ?? 0 });
+    },
+  );
+
+  server.registerTool(
+    "submit_company_report_analysis",
+    {
+      title: "提交企业报告分析",
+      description:
+        "把 Agent 基于 Ego Lite 证据形成的紧凑结构化分析回写工作台，并生成统一品牌 HTML。所有结论必须通过 evidenceIds 引用该任务中的证据；客户可见文字必须是自然中文，不得包含 ev-NNN、内部字段名或枚举值。分析 JSON 建议不超过 8 KiB，每个分区只保留 2–4 条最有价值的判断。",
+      inputSchema: submitCompanyReportAnalysisInputSchema,
+      annotations: { readOnlyHint: false, idempotentHint: false },
+    },
+    async (args: z.infer<typeof submitCompanyReportAnalysisInputSchema>) => {
+      const context = await loadReportContext(
+        client,
+        args.workspaceId,
+        args.evidenceJobId,
+      );
+      if ("error" in context) {
+        return failure(
+          "submit_company_report_analysis",
+          context.error ?? { code: "DATA_ACCESS_FAILED" },
+        );
+      }
+      const availableEvidence = new Set(
+        context.evidence.map((item) => item.id),
+      );
+      const citedEvidence = analysisEvidenceIds(args.analysis);
+      const missingEvidence = citedEvidence.filter(
+        (id) => !availableEvidence.has(id),
+      );
+      if (missingEvidence.length) {
+        return toolFailure(
+          `分析引用了不属于当前任务的证据：${missingEvidence.join("、")}`,
+        );
+      }
+      const { data, error } = await client.rpc(
+        "submit_company_report_analysis",
         {
-          uri: uri.href,
-          mimeType: "text/html;profile=mcp-app",
-          text: taskListHtml,
+          p_workspace_id: args.workspaceId,
+          p_evidence_job_id: args.evidenceJobId,
+          p_agent_provider: args.agentProvider,
+          p_agent_name: args.agentName,
+          p_analysis: args.analysis,
         },
-      ],
-    }),
+      );
+      if (error) return failure("submit_company_report_analysis", error);
+      const row = Array.isArray(data) ? data[0] : data;
+      if (!row?.report_id) return toolFailure("报告服务没有返回报告标识。");
+      const submittedAt = String(row.submitted_at ?? new Date().toISOString());
+      const reportHtml = renderAgentCompanyReport({
+        reportId: String(row.report_id),
+        revision: Number(row.revision) || 1,
+        submittedAt,
+        agentName: args.agentName,
+        company: context.company,
+        evidence: context.evidence,
+        analysis: args.analysis as CompanyAgentAnalysis,
+      });
+      const companyName = String(context.company.name ?? "企业").replace(
+        /[\\/:*?"<>|]/g,
+        "-",
+      );
+      return success({
+        reportId: row.report_id,
+        companyId: row.company_id,
+        evidenceJobId: args.evidenceJobId,
+        revision: row.revision,
+        submittedAt,
+        reportFileName: `${companyName}-企业调研报告.html`,
+        reportHtml,
+        deliveryInstruction:
+          "将 reportHtml 保存为 reportFileName，再使用当前 Agent 已有的通讯工具发送；工作台不保存飞书或微信凭证，也不会自动发送。",
+      });
+    },
   );
 
-  const taskSchema = z.object({
-    id: z
-      .number()
-      .int()
-      .describe("Task id — required for the mark-as-done action"),
-    text: z.string().nullable().optional().describe("Task description"),
-    type: z
-      .string()
-      .nullable()
-      .optional()
-      .describe("Task category/type (rendered as a pill)"),
-    due_date: z.string().nullable().optional().describe("ISO date string"),
-    done_date: z
-      .string()
-      .nullable()
-      .optional()
-      .describe("ISO timestamp if already done; null or omitted for pending"),
-    contact_name: z
-      .string()
-      .nullable()
-      .optional()
-      .describe("Full name of the linked contact, if any"),
-    contact_id: z
-      .number()
-      .int()
-      .nullable()
-      .optional()
-      .describe(
-        "Id of the linked contact — used to render the contact name as a link to the CRM contact page",
-      ),
-  });
-  type Task = z.infer<typeof taskSchema>;
-
   server.registerTool(
-    "display_task_list",
+    "list_rule_sets",
     {
-      title: "Display Task List",
-      description: `Render an array of task rows as an interactive UI (MCP App) where the user can mark each task as done.
-
-This tool is presentational: it does not query the database. Fetch the rows yourself via the query tool (joining contacts for contact_name when useful), then pass them here. Prefer this over replying with a bulleted list of tasks.
-
-Each task should include at least: id (required, used for the mark-as-done action), text, type, due_date, done_date, and optionally contact_name + contact_id (the UI renders the name as a link to the CRM contact page when contact_id is provided).`,
-      inputSchema: {
-        tasks: z.array(taskSchema).describe("Array of task objects to render"),
-      },
+      title: "列出规则集",
+      description: "列出工作空间已配置的规则集。",
+      inputSchema: listRuleSetsInputSchema,
       annotations: { readOnlyHint: true },
-      _meta: {
-        ui: {
-          resourceUri: TASK_LIST_UI_URI,
-          visibility: ["model"],
-        },
-      },
     },
-    ({ tasks }: { tasks: Task[] }) => {
-      // eslint-disable-next-line no-console
-      console.log(
-        `[MCP display_task_list] user=${authInfo.userId} count=${tasks.length}`,
-      );
-      // content carries the display text (used by Claude's guest HTML);
-      // structuredContent carries the typed data (used by ChatGPT's Apps SDK
-      // convention). Supplying both keeps the guest host-agnostic.
-      return {
-        content: [{ type: "text" as const, text: JSON.stringify(tasks) }],
-        structuredContent: { tasks },
-      };
+    async (args: z.infer<typeof listRuleSetsInputSchema>) => {
+      let query = client
+        .from("rule_sets")
+        .select(READ_PROJECTIONS.ruleSets)
+        .eq("workspace_id", args.workspaceId)
+        .order("updated_at", { ascending: false })
+        .limit(args.limit);
+      if (args.status) query = query.eq("status", args.status);
+      const { data, error } = await query;
+      if (error) return failure("list_rule_sets", error);
+      return success({ items: data ?? [], count: data?.length ?? 0 });
     },
   );
 
   server.registerTool(
-    "complete_task",
+    "list_rule_set_versions",
     {
-      title: "Mark Task Done",
+      title: "列出规则版本",
       description:
-        "Mark a single task as done by id. Used by the task-list UI when the user clicks a task's checkmark, and also callable directly by the model.",
-      inputSchema: {
-        id: z
-          .number()
-          .int()
-          .positive()
-          .describe("The id of the task to mark as done"),
-      },
-      annotations: { idempotentHint: true },
-      _meta: {
-        ui: {
-          visibility: ["model", "app"],
-        },
-      },
+        "列出某规则集的版本及可审计 JSON 定义；本工具不创建或发布规则。",
+      inputSchema: listRuleSetVersionsInputSchema,
+      annotations: { readOnlyHint: true },
     },
-    async ({ id }: { id: number }) => {
-      // RETURNING id lets us distinguish a successful update from an
-      // RLS-blocked or non-existent row (executeQueryWithRLS would otherwise
-      // report success on 0 rows affected).
-      const sql = `UPDATE tasks SET done_date = NOW() WHERE id = ${id} RETURNING id`;
-      // eslint-disable-next-line no-console
-      console.log(`[MCP complete_task] user=${authInfo.userId} id=${id}`);
-      const result = await executeQueryWithRLS(
-        sql,
-        authInfo.token,
-        validateWrite,
+    async (args: z.infer<typeof listRuleSetVersionsInputSchema>) => {
+      let query = client
+        .from("rule_set_versions")
+        .select(READ_PROJECTIONS.ruleSetVersions)
+        .eq("workspace_id", args.workspaceId)
+        .eq("rule_set_id", args.ruleSetId)
+        .order("version_number", { ascending: false })
+        .limit(args.limit);
+      if (args.status) query = query.eq("status", args.status);
+      const { data, error } = await query;
+      if (error) return failure("list_rule_set_versions", error);
+      return success({ items: data ?? [], count: data?.length ?? 0 });
+    },
+  );
+
+  server.registerTool(
+    "list_rule_runs",
+    {
+      title: "列出规则运行",
+      description: "列出规则运行状态、输入清单摘要和结果计数。",
+      inputSchema: listRuleRunsInputSchema,
+      annotations: { readOnlyHint: true },
+    },
+    async (args: z.infer<typeof listRuleRunsInputSchema>) => {
+      let query = client
+        .from("rule_runs")
+        .select(READ_PROJECTIONS.ruleRuns)
+        .eq("workspace_id", args.workspaceId)
+        .order("requested_at", { ascending: false })
+        .limit(args.limit);
+      if (args.companyListId) {
+        query = query.eq("company_list_id", args.companyListId);
+      }
+      if (args.ruleVersionId) {
+        query = query.eq("rule_version_id", args.ruleVersionId);
+      }
+      if (args.status) query = query.eq("status", args.status);
+      const { data, error } = await query;
+      if (error) return failure("list_rule_runs", error);
+      return success({ items: data ?? [], count: data?.length ?? 0 });
+    },
+  );
+
+  server.registerTool(
+    "list_rule_results",
+    {
+      title: "列出规则结果",
+      description: "列出指定规则运行的企业决策、命中规则、缺失字段和评估轨迹。",
+      inputSchema: listRuleResultsInputSchema,
+      annotations: { readOnlyHint: true },
+    },
+    async (args: z.infer<typeof listRuleResultsInputSchema>) => {
+      let query = client
+        .from("rule_results")
+        .select(READ_PROJECTIONS.ruleResults)
+        .eq("workspace_id", args.workspaceId)
+        .eq("rule_run_id", args.ruleRunId)
+        .order("evaluated_at", { ascending: false })
+        .limit(args.limit);
+      if (args.decision) query = query.eq("decision", args.decision);
+      const { data, error } = await query;
+      if (error) return failure("list_rule_results", error);
+      return success({ items: data ?? [], count: data?.length ?? 0 });
+    },
+  );
+
+  server.registerTool(
+    "list_exports",
+    {
+      title: "列出导出任务",
+      description: "列出已提交的导出、生成状态和私有存储路径。",
+      inputSchema: listExportsInputSchema,
+      annotations: { readOnlyHint: true },
+    },
+    async (args: z.infer<typeof listExportsInputSchema>) => {
+      let query = client
+        .from("exports")
+        .select(READ_PROJECTIONS.exports)
+        .eq("workspace_id", args.workspaceId)
+        .order("requested_at", { ascending: false })
+        .limit(args.limit);
+      if (args.status) query = query.eq("status", args.status);
+      const { data, error } = await query;
+      if (error) return failure("list_exports", error);
+      return success({ items: data ?? [], count: data?.length ?? 0 });
+    },
+  );
+
+  server.registerTool(
+    "start_ingestion_query",
+    {
+      title: "提交企业数据查询",
+      description:
+        "向已配置的企查查、获客助手或 Ego Lite 提交可审计任务。Ego Lite 公开报告必须绑定已存在企业，使用 web_evidence + public_report，不能作为名单来源。",
+      inputSchema: startIngestionQueryMcpInputSchema,
+      annotations: { readOnlyHint: false, idempotentHint: true },
+    },
+    async (args: z.infer<typeof startIngestionQueryMcpInputSchema>) =>
+      await enqueue(client, "start_ingestion_query", args),
+  );
+
+  server.registerTool(
+    "save_rule_template",
+    {
+      title: "创建或发布规则模板",
+      description:
+        "使用与 Web UI 一致的 RuleTemplate v1 合同，原子创建规则集或发布不可变新版本。新建时省略 ruleSetId，追加版本时传现有规则集 UUID；条件组最多 5 层、全树最多 200 个条件。规则不得携带任何凭证，完全相同的重试复用已发布版本。需要工作空间编辑权限。",
+      inputSchema: saveRuleTemplateInputSchema,
+      annotations: { readOnlyHint: false, idempotentHint: true },
+    },
+    async (args: z.infer<typeof saveRuleTemplateInputSchema>) => {
+      const { data, error } = await client.rpc(
+        "save_rule_template",
+        toSaveRuleTemplateMcpRpc(args),
       );
-      if (!result.success) {
-        return {
-          content: [{ type: "text" as const, text: `Error: ${result.error}` }],
-          isError: true,
-        };
+      if (error) return failure("save_rule_template", error);
+      const saved = parseSavedRuleTemplateMcpResult(data);
+      if (!saved) {
+        return failure("save_rule_template", { code: "INVALID_RESPONSE" });
       }
-      if (result.data.length === 0) {
-        return {
-          content: [
-            {
-              type: "text" as const,
-              text: `Error: task ${id} not found or permission denied.`,
-            },
-          ],
-          isError: true,
-        };
-      }
-      return {
-        content: [
-          { type: "text" as const, text: `Task ${id} marked as done.` },
-        ],
-      };
+      return success({ ...saved });
     },
+  );
+
+  server.registerTool(
+    "run_ruleset",
+    {
+      title: "运行已发布规则",
+      description:
+        "对企业名单运行已发布的规则版本。可先用 save_rule_template 或 Web UI 发布版本。",
+      inputSchema: runRulesetInputSchema,
+      annotations: { readOnlyHint: false, idempotentHint: true },
+    },
+    async (args: z.infer<typeof runRulesetInputSchema>) =>
+      await enqueue(client, "run_ruleset", args),
+  );
+
+  server.registerTool(
+    "start_export",
+    {
+      title: "提交正式导出",
+      description: "从企业名单或规则运行提交后端导出，仅允许明确白名单字段。",
+      inputSchema: startExportInputSchema,
+      annotations: { readOnlyHint: false, idempotentHint: true },
+    },
+    async (args: z.infer<typeof startExportInputSchema>) =>
+      await enqueue(client, "start_export", args),
   );
 
   return server;
 }
-
-// --- OAuth Protected Resource Metadata ---
 
 function handleProtectedResourceMetadata(req: Request): Response {
   const baseUrl = getBaseUrl(req);
@@ -563,53 +948,40 @@ function handleProtectedResourceMetadata(req: Request): Response {
       authorization_servers: [`${baseUrl}/auth/v1`],
       bearer_methods_supported: ["header"],
     }),
-    {
-      headers: { "Content-Type": "application/json" },
-    },
+    { headers: { "Content-Type": "application/json" } },
   );
 }
 
-// --- MCP Request Handler ---
-
 async function handleMcpRequest(req: Request): Promise<Response> {
-  // Validate auth
   const authInfo = await validateToken(req);
   if (!authInfo) {
-    const metadataUrl = getResourceMetadataUrl(req);
     return new Response("Unauthorized", {
       status: 401,
       headers: {
-        "WWW-Authenticate": `Bearer resource_metadata="${metadataUrl}"`,
+        "WWW-Authenticate": `Bearer resource_metadata="${getResourceMetadataUrl(
+          req,
+        )}"`,
       },
     });
   }
 
-  // Create stateless MCP server + transport for this request
   const server = createMcpServer(authInfo);
   const transport = new WebStandardStreamableHTTPServerTransport({
-    sessionIdGenerator: undefined, // Stateless
+    sessionIdGenerator: undefined,
   });
-
   await server.connect(transport);
-
-  // Clean up server + transport when the connection closes.
-  // Do NOT close in a finally block — the SSE response body is a
-  // ReadableStream that must remain open until the client consumes it.
   transport.onclose = () => {
     server.close().catch(() => {});
   };
 
   try {
     return await transport.handleRequest(req);
-  } catch (error) {
-    console.error("MCP request error:", error);
+  } catch {
     await transport.close();
     await server.close();
     return new Response("Internal Server Error", { status: 500 });
   }
 }
-
-// --- CORS Helper ---
 
 function withCorsHeaders(response: Response): Response {
   const headers = new Headers(response.headers);
@@ -623,26 +995,17 @@ function withCorsHeaders(response: Response): Response {
   });
 }
 
-// --- Route Dispatcher ---
-
 Deno.serve(async (req: Request) => {
-  // Handle CORS preflight
   if (req.method === "OPTIONS") {
     return new Response(null, { status: 204, headers: corsHeaders });
   }
 
-  const url = new URL(req.url);
-  const path = url.pathname;
-
-  // GET /functions/v1/mcp/oauth-protected-resource → RFC 9728 metadata
+  const path = new URL(req.url).pathname;
   if (path.endsWith("/oauth-protected-resource") && req.method === "GET") {
     return withCorsHeaders(handleProtectedResourceMetadata(req));
   }
-
-  // POST/GET/DELETE /functions/v1/mcp → MCP protocol handler
   if (path.endsWith("/mcp") || path.endsWith("/mcp/")) {
     return withCorsHeaders(await handleMcpRequest(req));
   }
-
   return withCorsHeaders(new Response("Not Found", { status: 404 }));
 });

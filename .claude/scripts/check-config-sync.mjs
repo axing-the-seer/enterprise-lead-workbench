@@ -10,7 +10,8 @@
 // Exit 0 = in sync; exit 1 = drift (prints the offending tokens).
 
 import { existsSync, readFileSync } from "node:fs";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { loadConfig, roleNames } from "../hooks/lib/config.mjs";
 
 function resolveRepo(argv) {
@@ -64,7 +65,7 @@ export function checkConfigSync(repo) {
 }
 
 // Run as CLI when invoked directly (not when imported by a test).
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (fileURLToPath(import.meta.url) === resolve(process.argv[1] ?? "")) {
   const repo = resolveRepo(process.argv.slice(2));
   const r = checkConfigSync(repo);
   if (r.error) {

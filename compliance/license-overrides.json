@@ -1,0 +1,44 @@
+{
+  "@streamparser/json-whatwg@0.0.22": {
+    "license": "MIT",
+    "file": "license-overrides/MIT-Juanjo-Diaz.txt",
+    "source": "https://github.com/juanjoDiaz/streamparser-json/blob/09195922f2e43280a5c45e557d4e21bdbe110616/LICENSE",
+    "reason": "The package README points to the monorepo root LICENSE, which is omitted from the npm subpackage tarball."
+  },
+  "@streamparser/json@0.0.22": {
+    "license": "MIT",
+    "file": "license-overrides/MIT-Juanjo-Diaz.txt",
+    "source": "https://github.com/juanjoDiaz/streamparser-json/blob/09195922f2e43280a5c45e557d4e21bdbe110616/LICENSE",
+    "reason": "The package README points to the monorepo root LICENSE, which is omitted from the npm subpackage tarball."
+  },
+  "isarray@1.0.0": {
+    "license": "MIT",
+    "file": "license-overrides/MIT-Julian-Gruber.txt",
+    "source": "https://github.com/juliangruber/isarray/blob/2a23a281f369e9ae06394c0fb4d2381355a6ba33/README.md#license",
+    "reason": "Version 1.0.0 carries the complete license in README.md rather than a separate LICENSE file."
+  },
+  "react-remove-scroll-bar@2.3.8": {
+    "license": "MIT",
+    "file": "license-overrides/MIT-Anton-Korzunov.txt",
+    "source": "https://github.com/theKashey/react-remove-scroll-bar/blob/7301c160fda44cb8cf2b9fdfde61efad35736196/LICENSE",
+    "reason": "The 2.3.8 package declares MIT and identifies Anton Korzunov as author, but its npm tarball predates the repository LICENSE file."
+  },
+  "saxes@5.0.1": {
+    "license": "ISC",
+    "file": "license-overrides/ISC-saxes-5.0.1.txt",
+    "source": "https://github.com/lddubeau/saxes/blob/v5.0.1/LICENSE",
+    "reason": "The exact upstream tag contains the complete license, which is omitted from the npm tarball."
+  },
+  "tr46@0.0.3": {
+    "license": "MIT",
+    "file": "license-overrides/MIT-Sebastian-Mayr.txt",
+    "source": "https://github.com/Sebmaster/tr46.js/blob/feff5a1db5fbae23242c15efa4e64f71c9750af0/LICENSE.md",
+    "reason": "Version 0.0.3 declares MIT and identifies Sebastian Mayr as author; the repository license was added later with the same attribution."
+  },
+  "undici-types@5.26.5": {
+    "license": "MIT",
+    "file": "license-overrides/MIT-Undici.txt",
+    "source": "https://github.com/nodejs/undici/blob/9197790ae0d015b40b75fd0c5cdb7420704b5272/LICENSE",
+    "reason": "The exact package source commit contains the license, which is omitted from the npm types tarball."
+  }
+}

@@ -93,7 +93,7 @@ describe("ContactList", () => {
       .poll(() => screen.getByText("VIP").all().length)
       .toBeGreaterThanOrEqual(2);
     // close the notification
-    await screen.getByRole("button", { name: /close/i }).click();
+    await screen.getByRole("button", { name: "关闭通知" }).click();
   });
 
   it("creates a new tag inline and applies it to the full selected list", async () => {
@@ -126,7 +126,7 @@ describe("ContactList", () => {
       .toBeInTheDocument();
     await expect.element(screen.getByText("Prospect").first()).toBeVisible();
     // close the notification
-    await screen.getByRole("button", { name: /close/i }).click();
+    await screen.getByRole("button", { name: "关闭通知" }).click();
   });
 });
 

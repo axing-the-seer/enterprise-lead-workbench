@@ -3,15 +3,17 @@ import { defineConfig } from "vitest/config";
 import { playwright } from "@vitest/browser-playwright";
 import react from "@vitejs/plugin-react";
 
-// Three test projects (https://vitest.dev/guide/projects.html):
+// Four test projects (https://vitest.dev/guide/projects.html):
 //   - "app":       React/DOM unit tests, run in a real browser (Playwright/Chromium).
 //   - "claude":    agent-harness hook tests, plain Node integration tests that spawn
 //                  the .claude/hooks/*.mjs hooks as subprocesses. No DOM, no browser.
 //   - "functions": Supabase Edge Function tests. Written for Deno with JSR imports;
 //                  Node-only here, with the jsr:/npm: specifiers aliased to their
 //                  installed npm equivalents. Aliases are scoped to this project.
-// Run everything with `npm run test:unit:app`, or a single suite with
-// `npm run test:unit:claude` / `npm run test:unit:functions` (neither boots a browser).
+//   - "worker":    provider worker unit tests, plain Node without a browser.
+// Run everything with `npm run test:unit:all`, or a single suite with
+// `npm run test:unit:app` / `npm run test:unit:claude` /
+// `npm run test:unit:functions` / `npm run test:unit:worker`.
 export default defineConfig({
   test: {
     projects: [
@@ -24,11 +26,13 @@ export default defineConfig({
           preserveSymlinks: true,
           alias: {
             "@": path.resolve(__dirname, "./src"),
+            jszip: path.resolve(__dirname, "./node_modules/jszip/lib/index.js"),
           },
         },
         test: {
           name: "app",
           globals: true,
+          include: ["src/**/*.test.{ts,tsx}"],
           browser: {
             headless: true,
             provider: playwright(),
@@ -59,6 +63,11 @@ export default defineConfig({
             "supabase/**",
             ".supabase-e2e/**",
             "e2e/**/*.spec.{ts,tsx}",
+            // The production workbench intentionally removes Atomic CRM's
+            // legacy contact create/edit routes. Their component tests mount
+            // those removed routes and now assert the Not Found page instead.
+            "src/components/atomic-crm/contacts/ContactCreate.test.tsx",
+            "src/components/atomic-crm/contacts/ContactEdit.test.tsx",
             // Harness hook tests are Node-only (they import node:fs / node:path
             // and spawn subprocesses); they run under the "claude" project below.
             ".claude/**",
@@ -93,14 +102,24 @@ export default defineConfig({
             ),
             "npm:tldts": path.resolve(__dirname, "node_modules/tldts"),
             "npm:pgsql-ast-parser@^12": "pgsql-ast-parser",
+            "npm:zod@4.4.3": "zod",
           },
         },
         test: {
           name: "functions",
           globals: true,
           environment: "node",
+          setupFiles: ["./supabase/functions/vitest-deno-setup.ts"],
           include: ["supabase/functions/**/*.test.ts"],
           exclude: ["**/node_modules/**", ".supabase-e2e/**"],
+        },
+      },
+      {
+        test: {
+          name: "worker",
+          environment: "node",
+          include: ["services/provider-worker/**/*.test.ts"],
+          exclude: ["**/node_modules/**"],
         },
       },
     ],

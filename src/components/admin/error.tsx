@@ -1,6 +1,6 @@
 import type { FallbackProps } from "react-error-boundary";
 import { useResetErrorBoundaryOnLocationChange, Translate } from "ra-core";
-import { CircleAlert, History } from "lucide-react";
+import { CircleAlert, History, RotateCcw } from "lucide-react";
 import {
   Accordion,
   AccordionContent,
@@ -58,47 +58,19 @@ export const Error = (props: InternalErrorProps & {}) => {
             </AccordionItem>
           </Accordion>
 
-          <p className="text-center ">
-            Need help with this error? Try the following:
+          <p className="text-center text-sm text-muted-foreground">
+            这是开发环境的诊断信息。请记录当前页面和操作步骤，交给企业名单工作台维护人员排查。
           </p>
-          <div>
-            <ul className="list-disc">
-              <li>
-                Check the{" "}
-                <a
-                  className="text-primary underline-offset-4 hover:underline"
-                  href="https://marmelab.com/shadcn-admin-kit/docs"
-                >
-                  shadcn-admin-kit documentation
-                </a>
-              </li>
-              <li>
-                Search on{" "}
-                <a
-                  className="text-primary underline-offset-4 hover:underline"
-                  href="https://stackoverflow.com/questions/tagged/shadcn-admin-kit"
-                >
-                  StackOverflow
-                </a>{" "}
-                for community answers
-              </li>
-              <li>
-                Get help from the core team via{" "}
-                <a
-                  className="text-primary underline-offset-4 hover:underline"
-                  href="https://marmelab.com/shadcn-admin-kit/"
-                >
-                  Shadcn Enterprise Edition
-                </a>
-              </li>
-            </ul>
-          </div>
         </>
       )}
-      <div className="mt-8">
+      <div className="mt-8 flex flex-wrap justify-center gap-3">
+        <Button variant="outline" onClick={() => window.location.reload()}>
+          <RotateCcw />
+          重新加载
+        </Button>
         <Button onClick={goBack}>
           <History />
-          <Translate i18nKey="ra.action.back" />
+          返回上一页
         </Button>
       </div>
     </div>

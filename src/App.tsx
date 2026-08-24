@@ -1,36 +1,24 @@
 import { CRM } from "@/components/atomic-crm/root/CRM";
+import { FindCompaniesPage } from "@/components/enterprise-workbench/FindCompaniesPage";
+import { WorkbenchLayout } from "@/components/enterprise-workbench/WorkbenchLayout";
+import { workbenchI18nProvider } from "@/components/enterprise-workbench/i18nProvider";
 
 /**
  * Application entry point
  *
- * Customize Atomic CRM by passing props to the CRM component:
- *  - companySectors
- *  - darkTheme
- *  - dealCategories
- *  - dealPipelineStatuses
- *  - dealStages
- *  - lightTheme
- *  - darkModeLogo / lightModeLogo
- *  - noteStatuses
- *  - taskTypes
- *  - title
- * ... as well as all the props accepted by shadcn-admin-kit's <Admin> component.
- *
- * Logos must be an imported asset, an absolute URL, or a data URI — never a
- * route-relative path like "./img/logo.png", which breaks on nested routes.
- *
- * @example
- * import logoDark from "./logo-dark.svg";
- * import logoLight from "./logo-light.svg";
- *
- * const App = () => (
- *    <CRM
- *       darkModeLogo={logoDark}
- *       lightModeLogo={logoLight}
- *       title="Acme CRM"
- *    />
- * );
+ * Production entry point. The inherited CRM shell remains an implementation
+ * detail; the user-facing product is the enterprise list workbench.
  */
-const App = () => <CRM />;
+const App = () => (
+  <CRM
+    title="企业名单工作台"
+    darkModeLogo="/appIcon/512.png"
+    lightModeLogo="/appIcon/512.png"
+    dashboard={FindCompaniesPage}
+    layout={WorkbenchLayout}
+    i18nProvider={workbenchI18nProvider}
+    disableTelemetry
+  />
+);
 
 export default App;

@@ -1,8 +1,6 @@
 name: 🚀 Deploy
 on:
-    push:
-        branches:
-            - main
+    workflow_dispatch:
 
 concurrency:
     group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
@@ -103,10 +101,11 @@ jobs:
             SUPABASE_PROJECT_ID: ${{ secrets.SUPABASE_PROJECT_ID }}
             VITE_SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
             VITE_SB_PUBLISHABLE_KEY: ${{ secrets.SB_PUBLISHABLE_KEY }}
-            IS_SUPABASE_CONFIGURED: ${{ secrets.SUPABASE_ACCESS_TOKEN && secrets.SUPABASE_DB_PASSWORD && secrets.SUPABASE_PROJECT_ID && secrets.SUPABASE_URL && secrets.SB_PUBLISHABLE_KEY }}
+            IS_SUPABASE_CONFIGURED: ${{ secrets.SUPABASE_ACCESS_TOKEN && secrets.SUPABASE_DB_PASSWORD && secrets.SUPABASE_PROJECT_ID && secrets.SUPABASE_URL && secrets.SB_PUBLISHABLE_KEY && secrets.WORKBENCH_BOOTSTRAP_TOKEN }}
             VITE_IS_DEMO: ${{ vars.VITE_IS_DEMO }}
             VITE_INBOUND_EMAIL: ${{ vars.VITE_INBOUND_EMAIL }}
             VITE_ATTACHMENTS_BUCKET: ${{ vars.VITE_ATTACHMENTS_BUCKET || 'attachments' }}
+            WORKBENCH_BOOTSTRAP_TOKEN: ${{ secrets.WORKBENCH_BOOTSTRAP_TOKEN }}
             PRODUCTION_REMOTE: https://git:${{ secrets.DEPLOY_TOKEN || secrets.GITHUB_TOKEN }}@github.com/${{ vars.DEPLOY_REPOSITORY }}
             POSTMARK_WEBHOOK_USER: ${{secrets.POSTMARK_WEBHOOK_USER}}
             POSTMARK_WEBHOOK_PASSWORD: ${{secrets.POSTMARK_WEBHOOK_PASSWORD}}
@@ -145,8 +144,42 @@ jobs:
               run: npx supabase link --project-ref $SUPABASE_PROJECT_ID
 
             - if: ${{ env.IS_SUPABASE_CONFIGURED }}
+              name: 🔒 Close hosted public signup
+              run: |
+                  node --input-type=module <<'NODE'
+                  const response = await fetch(
+                    `https://api.supabase.com/v1/projects/${process.env.SUPABASE_PROJECT_ID}/config/auth`,
+                    {
+                      method: "PATCH",
+                      headers: {
+                        Authorization: `Bearer ${process.env.SUPABASE_ACCESS_TOKEN}`,
+                        "Content-Type": "application/json",
+                      },
+                      body: JSON.stringify({ disable_signup: true }),
+                    },
+                  );
+                  if (!response.ok) {
+                    throw new Error(`Supabase Auth configuration failed (${response.status})`);
+                  }
+                  const configuration = await response.json();
+                  if (configuration.disable_signup !== true) {
+                    throw new Error("Supabase Auth still allows public signup");
+                  }
+                  console.log("Supabase public signup is disabled.");
+                  NODE
+
+            - if: ${{ env.IS_SUPABASE_CONFIGURED }}
               name: 📡 Push supabase migrations
               run: npx supabase db push
+
+            - if: ${{ env.IS_SUPABASE_CONFIGURED }}
+              name: 🔐 Push first-administrator bootstrap secret
+              run: |
+                  secret_file="$RUNNER_TEMP/workbench-bootstrap.env"
+                  trap 'rm -f "$secret_file"' EXIT
+                  umask 077
+                  printf 'WORKBENCH_BOOTSTRAP_TOKEN=%s\n' "$WORKBENCH_BOOTSTRAP_TOKEN" > "$secret_file"
+                  npx supabase secrets set --env-file "$secret_file" >/dev/null
 
             - if: ${{ env.IS_SUPABASE_CONFIGURED && env.POSTMARK_WEBHOOK_USER && env.POSTMARK_WEBHOOK_PASSWORD && env.POSTMARK_WEBHOOK_AUTHORIZED_IPS }}
               name: 📡 Push supabase postmark webhook user secret
@@ -180,6 +213,10 @@ jobs:
             - if: ${{ !env.VITE_SB_PUBLISHABLE_KEY }}
               name: Check SB_PUBLISHABLE_KEY secret
               run: echo ':warning:SB_PUBLISHABLE_KEY secret is missing' >> $GITHUB_STEP_SUMMARY
+
+            - if: ${{ !env.WORKBENCH_BOOTSTRAP_TOKEN }}
+              name: Check WORKBENCH_BOOTSTRAP_TOKEN secret
+              run: echo ':warning:WORKBENCH_BOOTSTRAP_TOKEN secret is missing; Supabase deployment was not allowed' >> $GITHUB_STEP_SUMMARY
 
             - if: ${{ !env.POSTMARK_WEBHOOK_USER }}
               name: Check POSTMARK_WEBHOOK_USER secret

@@ -231,6 +231,12 @@ export const createDataProvider = ({
         password,
       };
     },
+    getBootstrapStatus: async () => ({
+      configured: true,
+      initialized: false,
+      claimInProgress: false,
+      available: true,
+    }),
     salesCreate: async ({ ...data }: SalesFormData): Promise<Sale> => {
       const response = await dataProvider.create("sales", {
         data: {

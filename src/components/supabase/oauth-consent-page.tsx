@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { useAuthProvider, useTranslate } from "ra-core";
+import { useAuthProvider } from "ra-core";
 import { Layout } from "@/components/supabase/layout";
 import { Button } from "@/components/ui/button";
 import {
@@ -11,6 +11,17 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+
+function getAuthorizationErrorMessage(message: string) {
+  const normalized = message.toLowerCase();
+  if (
+    normalized.includes("authorization") &&
+    normalized.includes("not found")
+  ) {
+    return "本次授权请求已过期或已被使用，请返回 WorkBuddy 重新连接。";
+  }
+  return message;
+}
 
 /**
  * Authorization UI for OAuth Consent Page
@@ -27,7 +38,6 @@ export function OAuthConsentPage() {
   const [searchParams] = useSearchParams();
   const authorizationId = searchParams.get("authorization_id");
   const authProvider = useAuthProvider();
-  const translate = useTranslate();
 
   const [authDetails, setAuthDetails] =
     useState<OAuthAuthorizationDetails | null>(null);
@@ -53,9 +63,10 @@ export function OAuthConsentPage() {
       try {
         await authProvider.checkAuth({});
       } catch {
-        navigate(
-          `/login?redirect=/oauth/consent?authorization_id=${authorizationId}`,
+        const redirect = encodeURIComponent(
+          `/oauth/consent?authorization_id=${authorizationId}`,
         );
+        navigate(`/login?redirect=${redirect}`);
         return;
       }
 
@@ -64,7 +75,7 @@ export function OAuthConsentPage() {
         await authProvider.getAuthorizationDetails(authorizationId);
 
       if (error) {
-        setError(error.message);
+        setError(getAuthorizationErrorMessage(error.message));
       } else {
         setAuthDetails(data as OAuthAuthorizationDetails);
       }
@@ -111,9 +122,7 @@ export function OAuthConsentPage() {
     return (
       <Layout>
         <div className="flex flex-col space-y-2 text-center">
-          <p className="text-muted-foreground">
-            {translate("ra.message.loading", { _: "Loading..." })}
-          </p>
+          <p className="text-muted-foreground">正在读取授权请求…</p>
         </div>
       </Layout>
     );
@@ -124,7 +133,7 @@ export function OAuthConsentPage() {
       <Layout>
         <div className="flex flex-col space-y-2 text-center">
           <h1 className="text-2xl font-semibold tracking-tight">
-            {translate("ra.message.error", { _: "Error" })}
+            无法完成授权
           </h1>
           <p className="text-destructive">{error}</p>
         </div>
@@ -136,11 +145,7 @@ export function OAuthConsentPage() {
     return (
       <Layout>
         <div className="flex flex-col space-y-2 text-center">
-          <p className="text-muted-foreground">
-            {translate("ra-supabase.oauth.no_request", {
-              _: "No authorization request found",
-            })}
-          </p>
+          <p className="text-muted-foreground">没有找到有效的授权请求。</p>
         </div>
       </Layout>
     );
@@ -150,15 +155,9 @@ export function OAuthConsentPage() {
     return (
       <Layout>
         <div className="flex flex-col space-y-2 text-center">
-          <h1 className="text-2xl font-semibold tracking-tight">
-            {translate("ra-supabase.oauth.approved", {
-              _: "Authorization Approved",
-            })}
-          </h1>
+          <h1 className="text-2xl font-semibold tracking-tight">已允许访问</h1>
           <p className="text-muted-foreground">
-            {translate("ra-supabase.oauth.close_tab", {
-              _: "You can now close this tab.",
-            })}
+            已完成授权，你现在可以关闭此页面。
           </p>
         </div>
       </Layout>
@@ -169,18 +168,14 @@ export function OAuthConsentPage() {
     <Layout>
       <div className="flex flex-col space-y-2 text-center">
         <h1 className="text-2xl font-semibold tracking-tight">
-          {translate("ra-supabase.oauth.authorize", {
-            _: "Authorize Application",
-          })}
+          允许应用访问？
         </h1>
         <p className="text-muted-foreground">
-          {translate("ra-supabase.oauth.authorize_details", {
-            _: "This application wants to access your account",
-          })}
+          下方应用请求访问你的企业名单工作台账号。
         </p>
       </div>
 
-      <Card>
+      <Card className="rounded-2xl border-black/[0.06] shadow-none">
         <CardHeader>
           <CardTitle>{authDetails.client.name}</CardTitle>
           <CardDescription>{authDetails.redirect_uri}</CardDescription>
@@ -189,9 +184,7 @@ export function OAuthConsentPage() {
           {authDetails.scope && authDetails.scope.length > 0 && (
             <div>
               <p className="text-sm font-medium text-muted-foreground mb-2">
-                {translate("ra-supabase.oauth.permissions", {
-                  _: "Requested permissions",
-                })}
+                请求的权限
               </p>
               <ul className="list-disc list-inside space-y-1">
                 {authDetails.scope.split(" ").map((scopeItem) => (
@@ -210,14 +203,14 @@ export function OAuthConsentPage() {
             disabled={submitting}
             className="flex-1"
           >
-            {translate("ra.action.cancel", { _: "Deny" })}
+            拒绝
           </Button>
           <Button
             onClick={handleApprove}
             disabled={submitting}
             className="flex-1"
           >
-            {translate("ra.action.confirm", { _: "Approve" })}
+            允许
           </Button>
         </CardFooter>
       </Card>

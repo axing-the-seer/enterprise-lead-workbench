@@ -1,80 +1,68 @@
 ---
-title: Deploying to Production
-description: This document explains how to deploy Atomic CRM to production.
+title: 生产部署
+description: 部署 Web UI、Supabase、Provider Worker 和两套 Skill。
 ---
 
-## Deploying The Backend
+# 生产部署
 
-The entire backend of Atomic CRM is hosted on Supabase. The backend is composed of a Postgres database, a REST API, and edge functions. Check out the [Supabase Configuration](../supabase-configuration) section for details.
+企业名单工作台由四部分组成：Vite Web UI、Supabase 数据库与 Edge Functions、Provider Worker、可选的 WorkBuddy/Agent Skills。只部署静态前端不能执行名单查询、文件导入、企查查核验或公开信息报告。
 
-After [configuring your Supabase instance](../supabase-configuration), you can deploy the backend changes with the following command:
+## 1. 后端
 
-```sh
-make supabase-deploy
-```
+1. 创建 Supabase 项目并应用 `supabase/migrations`。
+2. 部署 `bootstrap-admin`、`workbench-api`、`workbench-jobs`、`mcp` 等 Edge Functions。
+3. 在服务端 Secret 中配置至少 24 字节的 `WORKBENCH_BOOTSTRAP_TOKEN`。
+4. 保持公开 Email/SMS 注册关闭；首位管理员创建成功后，引导页面会永久关闭。
+5. 为获客助手、企查查和联网搜索配置服务器端凭证或可执行程序路径。凭证不得使用 `VITE_*` 变量。
 
-Make sure you access the frontend once to initialize the main admin account.
+## 2. Provider Worker
 
-## Testing Production Mode
-
-If you want to test you local frontend code using the remote Supabase instance and the production settings, you can run the following command:
-
-```sh
-make prod-start
-```
-
-Note: It will apply migrations and deploy edge functions.
-
-You can then access the app via [`http://localhost:3000/`](http://localhost:3000/).
-
-## Deploying The Frontend
-
-The frontend of the CRM is a Single-Page App that can be deployed to any CDN, or to GitHub Pages.
-
-First, build the frontend bundle with:
+构建阶段：
 
 ```sh
-make build
+npm ci
+npm run build:worker
 ```
 
-This will create a `dist` directory with the built application made of static HTML, CSS, and JS files. Upload this directory to the CDN of your choice (e.g. Netlify, Vercel, etc.).
-
-If you want to deploy it to GitHub pages, you can use the following command:
+运行阶段：
 
 ```sh
-npm run ghpages:deploy
+SUPABASE_URL='<项目地址>' \
+SUPABASE_SERVICE_ROLE_KEY='<服务端密钥>' \
+npm run worker:start
 ```
 
-The CRM will be available at `https://<username>.github.io/atomic-crm/`.
+Worker 使用服务角色，只能运行在可信服务器，不得打包进浏览器或公开下载物。
 
-## Deploying Updates
-
-If you've modified the code, run the following command to deploy a new version of your CRM:
+## 3. Web UI
 
 ```sh
-make prod-deploy
+VITE_SUPABASE_URL='<项目地址>' \
+VITE_SB_PUBLISHABLE_KEY='<公开发布密钥>' \
+npm run build
 ```
 
-It will apply migrations, deploy edge functions and push the built applications to the `gh-pages` branch.
+将 `dist` 部署到支持 SPA 回退的静态站点。公开发布密钥受 RLS 保护；服务角色密钥、获客助手 Key、企查查配置和联网搜索 Key 不得进入 `dist`。
 
-## Automating Deployments With GitHub Actions
+## 4. 发布门禁
 
-Atomic CRM contains GitHub actions for continuous integration and delivery. To enable these actions, you will
-have to create the following secrets on GitHub:
-
-```bash
-SUPABASE_ACCESS_TOKEN: Your personal access token, can be found at https://supabase.com/dashboard/account/tokens
-SUPABASE_DB_PASSWORD: Your supabase database password
-SUPABASE_PROJECT_ID: Your supabase project id
-SUPABASE_URL: Your supabase project URL
-SB_PUBLISHABLE_KEY: Your supabase project publishable key
-POSTMARK_WEBHOOK_USER: User configured in Postmark to secure the webhook
-POSTMARK_WEBHOOK_PASSWORD: Password configured in Postmark to secure the webhook
-POSTMARK_WEBHOOK_AUTHORIZED_IPS: List of IPs (comma separated) authorized to send requests to the Postmark webhook
-VITE_INBOUND_EMAIL: The email address configured in Postmark to receive inbound emails
-VITE_ATTACHMENTS_BUCKET: The name of the bucket used to store attachments. Optional default to `attachments`
+```sh
+npm run typecheck
+npm run typecheck:worker
+npm run lint
+npm run test:unit:all
+npm run build
+npm run build:worker
+npm run compliance:generate
+npm run compliance:check
 ```
 
-> **Note:** The `POSTMARK_*` and `VITE_INBOUND_EMAIL` variables are required for Atomic CRM's inbound email features. Have a look at the the [inbound email configuration](../inbound-email-configuration) to learn more about their usage and setup.
+发布归档应包含 `compliance/sbom.cdx.json`、`compliance/THIRD_PARTY_LICENSES.txt`、`LICENSE.md` 和 `THIRD_PARTY_NOTICES.md`。任何合规阻塞项都必须在发布前解决。
 
-The GitHub action will run the `prod-deploy` command on every push to the `main` branch, deploying the frontend to GitHub pages and updating the Supabase instance.
+## 5. WorkBuddy 与其他 Agent
+
+`integrations/workbuddy-skill` 包含两套独立 Skill：企业名单工作台、企业公开信息报告。它们只描述业务编排和安全边界，不携带供应商凭证。部署环境必须提供工作台 MCP/REST 地址；没有基址时 Skill 只返回路由片段，不能猜测生产域名。
+
+## 6. 首次验收
+
+使用 10–50 家真实企业跑通：管理员初始化、数据源测试、获客助手取数或文件导入、字段映射、规则、企查查核验、Ego Lite 报告、CSV/XLSX/JSON/HTML 导出。分别检查桌面端、移动端、Web UI、MCP 与 REST 读取结果是否一致。

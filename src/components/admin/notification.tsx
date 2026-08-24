@@ -111,6 +111,8 @@ export const Notification = (props: ToasterProps) => {
         richColors
         theme={theme}
         closeButton
+        containerAriaLabel="通知"
+        toastOptions={{ closeButtonAriaLabel: "关闭通知" }}
         position="bottom-center"
         {...props}
       />

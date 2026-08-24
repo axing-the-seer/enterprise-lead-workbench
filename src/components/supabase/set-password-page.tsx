@@ -4,6 +4,7 @@ import { useSetPassword, useSupabaseAccessToken } from "ra-supabase-core";
 import { Button } from "@/components/ui/button";
 import { TextInput } from "@/components/admin/text-input";
 import { Layout } from "@/components/supabase/layout";
+import { KeyRound } from "lucide-react";
 
 interface SetPasswordFormData {
   password: string;
@@ -78,11 +79,15 @@ export const SetPasswordPage = () => {
   return (
     <Layout>
       <div className="flex flex-col space-y-2 text-center">
-        <h1 className="text-2xl font-semibold tracking-tight">
-          {translate("ra-supabase.set_password.new_password", {
-            _: "Choose your password",
-          })}
+        <span className="mx-auto mb-3 grid size-11 place-items-center rounded-2xl bg-[#e8f2ff] text-[#0071e3]">
+          <KeyRound className="size-5" />
+        </span>
+        <h1 className="text-[30px] font-semibold tracking-[-0.035em]">
+          设置新密码
         </h1>
+        <p className="text-sm leading-6 text-[#6e6e73]">
+          新密码建议使用 12 位以上字符，并避免与其他服务重复。
+        </p>
       </div>
       <Form
         className="space-y-8"
@@ -90,24 +95,24 @@ export const SetPasswordPage = () => {
         validate={validate as any}
       >
         <TextInput
-          label={translate("ra.auth.password", {
-            _: "Password",
-          })}
+          label="新密码"
           autoComplete="new-password"
           source="password"
           type="password"
           validate={required()}
         />
         <TextInput
-          label={translate("crm.auth.confirm_password", {
-            _: "Confirm password",
-          })}
+          label="确认密码"
           source="confirmPassword"
           type="password"
           validate={required()}
         />
-        <Button type="submit" className="cursor-pointer" disabled={loading}>
-          {translate("ra.action.save")}
+        <Button
+          type="submit"
+          className="h-12 w-full cursor-pointer rounded-full bg-[#0071e3] text-[15px] hover:bg-[#0077ed]"
+          disabled={loading}
+        >
+          {loading ? "正在保存…" : "保存新密码"}
         </Button>
       </Form>
     </Layout>

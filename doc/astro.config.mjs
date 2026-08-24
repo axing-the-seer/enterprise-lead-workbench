@@ -5,7 +5,7 @@ import tailwindcss from "@tailwindcss/vite";
 
 // https://astro.build/config
 export default defineConfig({
-  base: "/atomic-crm/doc/",
+  base: "/enterprise-lead-workbench/doc/",
   vite: {
     plugins: [tailwindcss()],
   },
@@ -14,26 +14,27 @@ export default defineConfig({
   },
   integrations: [
     starlight({
-      title: "Atomic CRM",
+      title: "企业名单工作台",
       favicon: "./favicon.svg",
       customCss: ["./src/styles/global.css"],
       logo: {
-        dark: "./public/logo_atomic_crm_dark.svg",
-        light: "./public/logo_atomic_crm_light.svg",
+        dark: "./public/logo_enterprise_workbench_dark.svg",
+        light: "./public/logo_enterprise_workbench_light.svg",
       },
       head: [
         {
           tag: "meta",
           attrs: {
             property: "og:title",
-            content: "Atomic CRM Documentation",
+            content: "企业名单工作台文档",
           },
         },
         {
           tag: "meta",
           attrs: {
             property: "og:description",
-            content: "A full-featured CRM toolkit for personalized solutions.",
+            content:
+              "获客助手、企查查、文件导入与公开信息报告的一体化企业名单工作台。",
           },
         },
         {
@@ -46,61 +47,33 @@ export default defineConfig({
         {
           tag: "meta",
           attrs: {
-            property: "og:url",
-            content: "https://marmelab.com/atomic-crm/doc",
+            property: "og:locale",
+            content: "zh_CN",
           },
-        },
-        {
-          tag: "meta",
-          attrs: {
-            property: "og:image",
-            content:
-              "https://marmelab.com/atomic-crm/img/atomic-crm-banner.png",
-          },
-        },
-        // add Umami analytics script tag.
-        {
-          tag: "script",
-          attrs: {
-            src: "https://gursikso.marmelab.com/script.js",
-            "data-website-id": "1dc1c802-5494-4c69-b507-3f2eff25091f",
-            defer: true,
-            async: true,
-          },
-        },
-      ],
-      social: [
-        {
-          icon: "github",
-          label: "GitHub",
-          href: "https://github.com/marmelab/atomic-crm",
         },
       ],
       sidebar: [
         {
-          label: "Getting Started",
+          label: "快速开始",
           link: "/",
         },
         {
-          label: "Users Documentation",
+          label: "使用说明",
+          items: [{ label: "初始化", link: "/users/initialization" }],
+        },
+        {
+          label: "生产与集成",
           items: [
-            "users/user-management",
-            "users/settings",
-            "users/import-data",
-            "users/merging-contacts",
-            "users/inbound-email",
-            "users/mobile-app",
-            "users/mcp-server",
+            {
+              label: "系统架构",
+              link: "/developers/workbench-architecture",
+            },
+            {
+              label: "数据源映射",
+              link: "/developers/provider-mapping",
+            },
+            { label: "生产部署", link: "/developers/deploy" },
           ],
-        },
-        {
-          label: "Developers Documentation",
-          autogenerate: { directory: "developers" },
-        },
-        {
-          label: "What's New",
-          link: "https://github.com/marmelab/atomic-crm/releases",
-          attrs: { target: "_blank" },
         },
       ],
     }),

@@ -15,6 +15,14 @@ export function getBaseBranch() {
 const WORKTREE_PREFIX = "worktree ";
 const BRANCH_PREFIX = "branch refs/heads/";
 
+// macOS reports /var worktrees through Git as their canonical /private/var
+// paths. Normalize that alias so hook payload paths and Git's registry compare
+// equal in projects located under a non-ASCII path as well as ordinary paths.
+export const normalizeWorktreePath = (value) =>
+  process.platform === "darwin" && value.startsWith("/private/var/")
+    ? value.slice("/private".length)
+    : value;
+
 // Value of the first line carrying `prefix`, stripped of it; "" when absent.
 const lineValue = (lines, prefix) => {
   const line = lines.find((l) => l.startsWith(prefix));
@@ -29,7 +37,7 @@ export function getWorktreeEntries() {
     .split("\n\n")
     .map((block) => block.split("\n"))
     .map((lines) => ({
-      path: lineValue(lines, WORKTREE_PREFIX),
+      path: normalizeWorktreePath(lineValue(lines, WORKTREE_PREFIX)),
       branch: lineValue(lines, BRANCH_PREFIX),
     }))
     .filter((entry) => entry.path);

@@ -50,7 +50,14 @@ stop-app-e2e:
 start-app-e2e-ci: build-e2e ## start the app pointing to the e2e supabase instance in CI mode (no open, no watch)
 	npx serve -l 5175 -L -s dist &
 
-start: start-supabase start-app ## start the stack locally
+start: ## start Supabase, provider worker, and the Web app locally
+	npm run start:local
+
+start-acceptance: ## start an isolated full stack for manual production-flow acceptance
+	npm run start:acceptance
+
+stop-acceptance: ## stop the isolated acceptance stack without touching the default stack
+	npm run stop:acceptance
 
 start-demo: ## start the app locally in demo mode
 	npm run dev:demo

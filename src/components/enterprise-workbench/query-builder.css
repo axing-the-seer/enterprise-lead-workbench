@@ -1,0 +1,76 @@
+.workbench-query-builder .queryBuilder {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.workbench-query-builder .ruleGroup {
+  border: 1px solid var(--border);
+  border-radius: 0.75rem;
+  background: color-mix(in oklab, var(--muted) 32%, transparent);
+  padding: 0.875rem;
+}
+
+.workbench-query-builder .ruleGroup-header,
+.workbench-query-builder .rule {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.workbench-query-builder .ruleGroup-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.625rem;
+  margin-top: 0.75rem;
+}
+
+.workbench-query-builder .rule {
+  border: 1px solid var(--border);
+  border-radius: 0.625rem;
+  background: var(--background);
+  padding: 0.625rem;
+}
+
+.workbench-query-builder select,
+.workbench-query-builder input {
+  height: 2.25rem;
+  min-width: 8.5rem;
+  border: 1px solid var(--input);
+  border-radius: 0.375rem;
+  background: var(--background);
+  padding: 0 0.625rem;
+  font-size: 0.8125rem;
+}
+
+.workbench-query-builder button {
+  min-height: 2rem;
+  border: 1px solid var(--border);
+  border-radius: 0.375rem;
+  background: var(--background);
+  padding: 0.375rem 0.625rem;
+  font-size: 0.75rem;
+  font-weight: 500;
+}
+
+.workbench-query-builder button:hover {
+  background: var(--accent);
+}
+
+.workbench-query-builder .rule-remove,
+.workbench-query-builder .ruleGroup-remove {
+  color: var(--destructive);
+}
+
+@media (max-width: 640px) {
+  .workbench-query-builder .rule,
+  .workbench-query-builder .ruleGroup-header {
+    align-items: stretch;
+  }
+
+  .workbench-query-builder select,
+  .workbench-query-builder input {
+    width: 100%;
+  }
+}

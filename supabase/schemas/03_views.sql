@@ -74,8 +74,38 @@ from public.deal_notes dn
 create or replace view public.companies_summary with (security_invoker = on) as
 select
     c.id,
+    c.workspace_id,
     c.created_at,
+    c.updated_at,
     c.name,
+    c.normalized_name,
+    c.deduplication_key,
+    c.unified_social_credit_code,
+    c.registration_number,
+    c.organization_code,
+    c.legal_representative,
+    c.operating_status,
+    c.company_type,
+    c.registered_capital_amount,
+    c.paid_in_capital_amount,
+    c.registered_capital_currency,
+    c.established_on,
+    c.approved_on,
+    c.registration_authority,
+    c.business_scope,
+    c.province,
+    c.district,
+    c.industry_code,
+    c.industry_name,
+    c.employee_count,
+    c.insured_employee_count,
+    c.personnel_scale_text,
+    c.region_text,
+    c.primary_source,
+    c.last_verified_at,
+    c.profile_status,
+    c.completeness_score,
+    c.merged_into_company_id,
     c.sector,
     c.size,
     c.linkedin_url,
@@ -92,12 +122,30 @@ select
     c.revenue,
     c.tax_identifier,
     c.logo,
-    count(distinct d.id) as nb_deals,
-    count(distinct co.id) as nb_contacts
-from public.companies c
-    left join public.deals d on c.id = d.company_id
-    left join public.contacts co on c.id = co.company_id
-group by c.id;
+    0::bigint as nb_deals,
+    0::bigint as nb_contacts
+from public.companies c;
+
+create or replace view public.source_connections_safe with (security_invoker = on) as
+select
+    sc.id,
+    sc.workspace_id,
+    sc.provider,
+    sc.name,
+    sc.connection_kind,
+    sc.status,
+    sc.has_secret_reference,
+    sc.connection_config,
+    sc.capabilities,
+    sc.default_mapping_version_id,
+    sc.external_connection_id,
+    sc.last_verified_at,
+    sc.last_error_code,
+    sc.created_by,
+    sc.updated_by,
+    sc.created_at,
+    sc.updated_at
+from public.source_connections sc;
 
 create or replace view public.contacts_summary with (security_invoker = on) as
 select

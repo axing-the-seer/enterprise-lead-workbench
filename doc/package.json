@@ -1,5 +1,5 @@
 {
-  "name": "atomic-crm-doc",
+  "name": "enterprise-lead-workbench-doc",
   "type": "module",
   "version": "0.0.1",
   "scripts": {
@@ -10,11 +10,11 @@
     "astro": "astro"
   },
   "dependencies": {
-    "@astrojs/starlight": "^0.38.3",
-    "@astrojs/starlight-tailwind": "^4.0.1",
+    "@astrojs/starlight": "0.41.7",
+    "@astrojs/starlight-tailwind": "5.0.0",
     "@tailwindcss/vite": "^4.1.18",
-    "astro": "^6.4.4",
-    "sharp": "^0.34.2",
+    "astro": "7.2.4",
+    "sharp": "0.35.3",
     "tailwindcss": "^4.1.14"
   },
   "devDependencies": {

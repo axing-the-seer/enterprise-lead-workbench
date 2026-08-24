@@ -74,13 +74,52 @@ async function inviteUser(req: Request, currentUserSale: any) {
     return createErrorResponse(401, "Not Authorized");
   }
 
-  const { data, error: userError } = await supabaseAdmin.auth.admin.createUser({
-    email,
-    password,
-    user_metadata: { first_name, last_name },
-  });
+  const provisioningClaimId = crypto.randomUUID();
+  const { data: provisioningClaimIssued, error: provisioningClaimError } =
+    await supabaseAdmin.rpc("issue_user_provisioning_claim", {
+      p_claim_id: provisioningClaimId,
+      p_email: email,
+      p_purpose: "administrator",
+      p_administrator: Boolean(administrator),
+    });
+  if (provisioningClaimError || provisioningClaimIssued !== true) {
+    return createErrorResponse(
+      503,
+      "User provisioning is temporarily unavailable",
+    );
+  }
 
-  let user = data?.user;
+  let creationResult;
+  try {
+    creationResult = await supabaseAdmin.auth.admin.createUser({
+      email,
+      password,
+      user_metadata: {
+        first_name,
+        last_name,
+        workbench_provisioning_claim_id: provisioningClaimId,
+      },
+      app_metadata: { workbench_provisioning: "administrator" },
+    });
+  } catch {
+    await supabaseAdmin.rpc("release_user_provisioning_claim", {
+      p_claim_id: provisioningClaimId,
+    });
+    return createErrorResponse(
+      503,
+      "User provisioning is temporarily unavailable",
+    );
+  }
+
+  const { data, error: userError } = creationResult;
+
+  const user = data?.user;
+
+  if (!user) {
+    await supabaseAdmin.rpc("release_user_provisioning_claim", {
+      p_claim_id: provisioningClaimId,
+    });
+  }
 
   if (!user && userError?.code === "email_exists") {
     // This may happen if users cleared their database but not the users
@@ -96,14 +135,17 @@ async function inviteUser(req: Request, currentUserSale: any) {
       return createErrorResponse(500, "Internal Server Error");
     }
 
-    user = data[0];
+    const existingUser = data[0] as { id?: string } | undefined;
+    if (!existingUser?.id) {
+      return createErrorResponse(500, "Internal Server Error");
+    }
     try {
       const { data: existingSale, error: salesError } = await supabaseAdmin
         .from("sales")
         .select("*")
-        .eq("user_id", user.id);
+        .eq("user_id", existingUser.id);
       if (salesError) {
-        return createErrorResponse(salesError.status, salesError.message, {
+        return createErrorResponse(500, salesError.message, {
           code: salesError.code,
         });
       }
@@ -114,7 +156,7 @@ async function inviteUser(req: Request, currentUserSale: any) {
         );
       }
 
-      const sale = await createSale(user.id, {
+      const sale = await createSale(existingUser.id, {
         email,
         password,
         first_name,
@@ -143,7 +185,7 @@ async function inviteUser(req: Request, currentUserSale: any) {
   } else {
     if (userError) {
       console.error(`Error inviting user: user_error=${userError}`);
-      return createErrorResponse(userError.status, userError.message, {
+      return createErrorResponse(userError.status ?? 500, userError.message, {
         code: userError.code,
       });
     }
@@ -158,6 +200,10 @@ async function inviteUser(req: Request, currentUserSale: any) {
       console.error(`Error inviting user, email_error=${emailError}`);
       return createErrorResponse(500, "Failed to send invitation mail");
     }
+  }
+
+  if (!user) {
+    return createErrorResponse(500, "Internal Server Error");
   }
 
   try {
@@ -263,6 +309,9 @@ Deno.serve(async (req: Request) =>
   OptionsMiddleware(req, async (req) =>
     AuthMiddleware(req, async (req) =>
       UserMiddleware(req, async (req, user) => {
+        if (!user) {
+          return createErrorResponse(401, "Unauthorized");
+        }
         const currentUserSale = await getUserSale(user);
         if (!currentUserSale) {
           return createErrorResponse(401, "Unauthorized");

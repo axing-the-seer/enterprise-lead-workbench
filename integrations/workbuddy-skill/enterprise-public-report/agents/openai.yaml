@@ -1,0 +1,6 @@
+interface:
+  display_name: "企业情报报告"
+  short_description: "读取 Ego Lite 证据，用 Agent 分析并生成统一企业报告"
+  default_prompt: "使用 $enterprise-public-report 为名单中的企业生成有证据引用的调研报告。"
+policy:
+  allow_implicit_invocation: true

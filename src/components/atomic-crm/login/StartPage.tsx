@@ -1,14 +1,17 @@
 import { useQuery } from "@tanstack/react-query";
 import { useDataProvider } from "ra-core";
-import { Navigate } from "react-router-dom";
+import { Navigate, useLocation } from "react-router-dom";
+import { getSafeLoginRedirect } from "@/lib/authRoute";
 
 import type { CrmDataProvider } from "../providers/types";
 import { LoginSkeleton } from "./LoginSkeleton";
 import { LoginPage } from "./LoginPage";
 import { disableEmailPasswordAuthentication } from "./authConfig";
 
-export const StartPage = () => {
+export const StartPage = (props: { redirectTo?: string }) => {
   const dataProvider = useDataProvider<CrmDataProvider>();
+  const location = useLocation();
+  const redirectTo = props.redirectTo ?? getSafeLoginRedirect(location.search);
   const {
     data: isInitialized,
     error,
@@ -21,9 +24,10 @@ export const StartPage = () => {
   });
 
   if (isPending) return <LoginSkeleton />;
-  if (error) return <LoginPage />;
-  if (isInitialized) return <LoginPage />;
-  if (disableEmailPasswordAuthentication) return <LoginPage />;
+  if (error) return <LoginPage redirectTo={redirectTo} />;
+  if (isInitialized) return <LoginPage redirectTo={redirectTo} />;
+  if (disableEmailPasswordAuthentication)
+    return <LoginPage redirectTo={redirectTo} />;
 
   return <Navigate to="/sign-up" />;
 };

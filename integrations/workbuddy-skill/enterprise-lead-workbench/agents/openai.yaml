@@ -1,0 +1,6 @@
+interface:
+  display_name: "找客户 · 企业名单工作台"
+  short_description: "把模糊获客需求引导成真实条件并生成可管理企业名单"
+  default_prompt: "使用 $enterprise-lead-workbench 帮我梳理想开发的客户类型，确认后生成可管理的企业名单。"
+policy:
+  allow_implicit_invocation: true

@@ -1,17 +1,20 @@
-import { input, select } from "@inquirer/prompts";
+import { input, password, select } from "@inquirer/prompts";
 import { execa } from "execa";
 import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 
 (async () => {
   await loginToSupabase();
   const projectName = await input({
     message: "Enter the name of the project:",
-    default: "Atomic CRM",
+    default: "Enterprise Lead Workbench",
   });
   const databasePassword = await input({
     message: "Enter a database password:",
     default: generatePassword(16),
   });
+  const bootstrapToken = await promptBootstrapToken();
 
   const organizationId = await selectOrganization();
 
@@ -42,6 +45,7 @@ import fs from "node:fs";
   await setupSupabaseSecrets({
     projectRef,
     publishableKey,
+    bootstrapToken,
   });
 
   await persistSupabaseEnv({
@@ -289,21 +293,61 @@ async function fetchApiKeys({ projectRef }) {
   return { publishableKey };
 }
 
-async function setupSupabaseSecrets({ projectRef, publishableKey }) {
-  await execa(
-    "npx",
-    [
-      "supabase",
-      "secrets",
-      "set",
-      `SB_PUBLISHABLE_KEY=${publishableKey}`,
-      "--project-ref",
-      projectRef,
-    ],
-    {
-      stdio: "inherit",
-    },
+async function setupSupabaseSecrets({
+  projectRef,
+  publishableKey,
+  bootstrapToken,
+}) {
+  const tempDirectory = fs.mkdtempSync(
+    path.join(os.tmpdir(), "workbench-supabase-secrets-"),
   );
+  const envFile = path.join(tempDirectory, "functions.env");
+  fs.writeFileSync(
+    envFile,
+    `SB_PUBLISHABLE_KEY=${publishableKey}\nWORKBENCH_BOOTSTRAP_TOKEN=${bootstrapToken}\n`,
+    { mode: 0o600 },
+  );
+
+  try {
+    await execa(
+      "npx",
+      [
+        "supabase",
+        "secrets",
+        "set",
+        "--env-file",
+        envFile,
+        "--project-ref",
+        projectRef,
+      ],
+      {
+        stdin: "ignore",
+        stdout: "ignore",
+        stderr: "inherit",
+      },
+    );
+  } finally {
+    fs.rmSync(tempDirectory, { recursive: true, force: true });
+  }
+}
+
+async function promptBootstrapToken() {
+  while (true) {
+    const value = await password({
+      message:
+        "Choose the first-administrator bootstrap token (at least 24 bytes):",
+      mask: true,
+      validate: (candidate) =>
+        new TextEncoder().encode(candidate).length >= 24 ||
+        "The bootstrap token must contain at least 24 bytes.",
+    });
+    const confirmation = await password({
+      message: "Confirm the bootstrap token:",
+      mask: true,
+    });
+    if (value === confirmation) return value;
+    console.error("Bootstrap tokens did not match. Please try again.");
+  }
 }
 
 async function persistSupabaseEnv({ projectRef, publishableKey }) {

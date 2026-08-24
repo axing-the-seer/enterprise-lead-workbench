@@ -482,6 +482,10 @@
           "type": "registry:component"
         },
         {
+          "path": "src/components/atomic-crm/login/authConfig.ts",
+          "type": "registry:component"
+        },
+        {
           "path": "src/components/atomic-crm/login/StartPage.tsx",
           "type": "registry:component"
         },
@@ -863,6 +867,14 @@
         },
         {
           "path": "src/lib/toSlug.ts",
+          "type": "registry:lib"
+        },
+        {
+          "path": "src/lib/authRoute.ts",
+          "type": "registry:lib"
+        },
+        {
+          "path": "src/lib/authRoute.test.ts",
           "type": "registry:lib"
         },
         {

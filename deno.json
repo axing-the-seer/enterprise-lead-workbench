@@ -1,0 +1,9 @@
+{
+  "nodeModulesDir": "none",
+  "imports": {
+    "@supabase/supabase-js": "npm:@supabase/supabase-js@2.112.3",
+    "base64-arraybuffer": "npm:base64-arraybuffer@1.0.2",
+    "tldts": "npm:tldts@7.4.10",
+    "zod": "npm:zod@4.4.3"
+  }
+}

@@ -1,6 +1,7 @@
 {
+  "nodeModulesDir": "none",
   "imports": {
-    "base64-arraybuffer": "npm:base64-arraybuffer",
-    "tldts": "npm:tldts"
+    "base64-arraybuffer": "npm:base64-arraybuffer@1.0.2",
+    "tldts": "npm:tldts@7.4.10"
   }
 }

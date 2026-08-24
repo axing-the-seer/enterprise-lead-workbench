@@ -8,6 +8,7 @@ import {
 } from "ra-core";
 import type {
   ContactNote,
+  BootstrapStatus,
   Deal,
   DealNote,
   RAFile,
@@ -87,31 +88,61 @@ const getDataProviderWithCustomMethods = () => {
       return baseDataProvider.getOne(resource, params);
     },
 
-    async signUp({ email, password, first_name, last_name }: SignUpData) {
-      const response = await getSupabaseClient().auth.signUp({
-        email,
-        password,
-        options: {
-          data: {
-            first_name,
-            last_name,
-          },
+    async signUp({
+      email,
+      password,
+      first_name,
+      last_name,
+      bootstrap_token,
+    }: SignUpData) {
+      const { data, error } = await getSupabaseClient().functions.invoke<{
+        data: { id: string; email: string };
+      }>("bootstrap-admin", {
+        method: "POST",
+        body: {
+          action: "create",
+          bootstrapToken: bootstrap_token,
+          email,
+          password,
+          firstName: first_name,
+          lastName: last_name,
         },
       });
 
-      if (!response.data?.user || response.error) {
-        console.error("signUp.error", response.error);
-        throw new Error(response?.error?.message || "Failed to create account");
+      if (!data?.data || error) {
+        const errorDetails = await (async () => {
+          try {
+            return (await error?.context?.json()) ?? {};
+          } catch {
+            return {};
+          }
+        })();
+        throw new Error(
+          errorDetails?.message || "首次管理员账号创建失败，请稍后重试。",
+        );
       }
 
       // Update the is initialized cache
       (getIsInitialized as any)._is_initialized_cache = true;
 
       return {
-        id: response.data.user.id,
-        email,
+        id: data.data.id,
+        email: data.data.email,
         password,
       };
+    },
+    async getBootstrapStatus(): Promise<BootstrapStatus> {
+      const { data, error } = await getSupabaseClient().functions.invoke<{
+        data: BootstrapStatus;
+      }>("bootstrap-admin", {
+        method: "POST",
+        body: { action: "status" },
+      });
+
+      if (!data?.data || error) {
+        throw new Error("无法读取首次管理员初始化状态");
+      }
+      return data.data;
     },
     async salesCreate(body: SalesFormData) {
       const { data, error } = await getSupabaseClient().functions.invoke<{

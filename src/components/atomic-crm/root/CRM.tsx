@@ -5,35 +5,19 @@ import type {
   LayoutComponent,
 } from "ra-core";
 import { CustomRoutes, localStorageStore, Resource } from "ra-core";
-import { useEffect, useMemo } from "react";
+import { lazy, useEffect, useMemo, type ComponentType } from "react";
 import { Route } from "react-router";
-import { QueryClient } from "@tanstack/react-query";
-import { PersistQueryClientProvider } from "@tanstack/react-query-persist-client";
-import { createAsyncStoragePersister } from "@tanstack/query-async-storage-persister";
 import { Admin } from "@/components/admin/admin";
 import { ForgotPasswordPage } from "@/components/supabase/forgot-password-page";
 import { SetPasswordPage } from "@/components/supabase/set-password-page";
 import { OAuthConsentPage } from "@/components/supabase/oauth-consent-page";
 
-import companies from "../companies";
-import contacts from "../contacts";
-import { Dashboard } from "../dashboard/Dashboard";
-import { MobileDashboard } from "../dashboard/MobileDashboard";
-import deals from "../deals";
-import { Layout } from "../layout/Layout";
-import { MobileLayout } from "../layout/MobileLayout";
 import { SignupPage } from "../login/SignupPage";
 import { ConfirmationRequired } from "../login/ConfirmationRequired";
-import { ImportPage } from "../misc/ImportPage";
-import { ChangelogPage } from "../misc/ChangelogPage";
 import {
   getAuthProvider as defaultAuthProviderBuilder,
   getDataProvider as defaultDataProviderBuilder,
 } from "../providers/supabase";
-import sales from "../sales";
-import { SettingsPageMobile } from "../settings/SettingsPageMobile";
-import { ProfilePage } from "../settings/ProfilePage";
-import { SettingsPage } from "../settings/SettingsPage";
 import {
   CONFIGURATION_STORE_KEY,
   type ConfigurationContextValue,
@@ -54,13 +38,70 @@ import {
 import { i18nProvider as defaulti18nProvider } from "../providers/commons/i18nProvider";
 import { StartPage } from "../login/StartPage.tsx";
 import { useIsMobile } from "@/hooks/use-mobile.ts";
-import { MobileTasksList } from "../tasks/MobileTasksList.tsx";
-import { ContactListMobile } from "../contacts/ContactList.tsx";
-import { ContactShow } from "../contacts/ContactShow.tsx";
-import { CompanyShow } from "../companies/CompanyShow.tsx";
-import { NoteShowPage } from "../notes/NoteShowPage.tsx";
+import { WorkbenchLayout } from "@/components/enterprise-workbench/WorkbenchLayout";
+import { FindCompaniesPage } from "@/components/enterprise-workbench/FindCompaniesPage";
 
-const defaultStore = localStorageStore(undefined, "CRM");
+const lazyWorkbenchPage = <
+  T extends Record<string, unknown>,
+  K extends keyof T,
+>(
+  loader: () => Promise<T>,
+  exportName: K,
+) =>
+  lazy(async () => ({
+    default: (await loader())[exportName] as ComponentType,
+  }));
+
+const MyListsPage = lazyWorkbenchPage(
+  () => import("@/components/enterprise-workbench/MyListsPage"),
+  "MyListsPage",
+);
+const ListDetailPage = lazyWorkbenchPage(
+  () => import("@/components/enterprise-workbench/ListDetailPage"),
+  "ListDetailPage",
+);
+const PublicReportPage = lazyWorkbenchPage(
+  () => import("@/components/enterprise-workbench/PublicReportPage"),
+  "PublicReportPage",
+);
+const SourceConnectionsPage = lazyWorkbenchPage(
+  () => import("@/components/enterprise-workbench/SourceConnectionsPage"),
+  "SourceConnectionsPage",
+);
+const BatchesPage = lazyWorkbenchPage(
+  () => import("@/components/enterprise-workbench/BatchesPage"),
+  "BatchesPage",
+);
+const FieldMappingsPage = lazyWorkbenchPage(
+  () => import("@/components/enterprise-workbench/FieldMappingsPage"),
+  "FieldMappingsPage",
+);
+const RuleTemplatesPage = lazyWorkbenchPage(
+  () => import("@/components/enterprise-workbench/RuleTemplatesPage"),
+  "RuleTemplatesPage",
+);
+const RunsPage = lazyWorkbenchPage(
+  () => import("@/components/enterprise-workbench/RunsPage"),
+  "RunsPage",
+);
+const ConflictsPage = lazyWorkbenchPage(
+  () => import("@/components/enterprise-workbench/ConflictsPage"),
+  "ConflictsPage",
+);
+const EnterpriseReviewPage = lazyWorkbenchPage(
+  () => import("@/components/enterprise-workbench/EnterpriseReviewPage"),
+  "EnterpriseReviewPage",
+);
+const ExportsPage = lazyWorkbenchPage(
+  () => import("@/components/enterprise-workbench/ExportsPage"),
+  "ExportsPage",
+);
+const WorkbenchSettingsPage = lazyWorkbenchPage(
+  () => import("@/components/enterprise-workbench/WorkbenchSettingsPage"),
+  "WorkbenchSettingsPage",
+);
+
+const defaultStore = localStorageStore(undefined, "EnterpriseWorkbench");
 
 export type CRMProps = {
   dataProvider?: CrmDataProvider;
@@ -132,20 +173,6 @@ export const CRM = ({
   disableTelemetry,
   ...rest
 }: CRMProps) => {
-  useEffect(() => {
-    if (
-      disableTelemetry ||
-      process.env.NODE_ENV !== "production" ||
-      typeof window === "undefined" ||
-      typeof window.location === "undefined" ||
-      typeof Image === "undefined"
-    ) {
-      return;
-    }
-    const img = new Image();
-    img.src = `https://atomic-crm-telemetry.marmelab.com/atomic-crm-telemetry?domain=${window.location.hostname}`;
-  }, [disableTelemetry]);
-
   // Seed the store with CRM prop values if not already stored
   // (backwards compatibility for prop-based config)
   useEffect(() => {
@@ -224,7 +251,7 @@ export const CRM = ({
       store={store}
       loginPage={StartPage}
       requireAuth
-      disableTelemetry
+      disableTelemetry={disableTelemetry ?? true}
       {...rest}
     />
   );
@@ -238,8 +265,8 @@ const DesktopAdmin = (
 ) => {
   return (
     <Admin
-      layout={props.layout ?? Layout}
-      dashboard={props.dashboard ?? Dashboard}
+      layout={props.layout ?? WorkbenchLayout}
+      dashboard={props.dashboard ?? FindCompaniesPage}
       {...props}
     >
       <CustomRoutes noLayout>
@@ -257,19 +284,42 @@ const DesktopAdmin = (
       </CustomRoutes>
 
       <CustomRoutes>
-        <Route path={ProfilePage.path} element={<ProfilePage />} />
-        <Route path={SettingsPage.path} element={<SettingsPage />} />
-        <Route path={ImportPage.path} element={<ImportPage />} />
-        <Route path={ChangelogPage.path} element={<ChangelogPage />} />
+        <Route path="/lists" element={<MyListsPage />} />
+        <Route path="/lists/:listId" element={<ListDetailPage />} />
+        <Route path="/reports/:jobId" element={<PublicReportPage />} />
+        <Route path="/sources" element={<SourceConnectionsPage />} />
+        <Route path="/batches" element={<BatchesPage />} />
+        <Route path="/mappings" element={<FieldMappingsPage />} />
+        <Route path="/rules" element={<RuleTemplatesPage />} />
+        <Route path="/runs" element={<RunsPage />} />
+        <Route path="/review" element={<EnterpriseReviewPage />} />
+        <Route path="/conflicts" element={<ConflictsPage />} />
+        <Route path="/exports" element={<ExportsPage />} />
+        <Route path="/settings" element={<WorkbenchSettingsPage />} />
       </CustomRoutes>
-      <Resource name="deals" {...deals} />
-      <Resource name="contacts" {...contacts} />
-      <Resource name="companies" {...companies} />
-      <Resource name="contact_notes" />
-      <Resource name="deal_notes" />
-      <Resource name="tasks" />
-      <Resource name="sales" {...sales} />
-      <Resource name="tags" />
+      <Resource name="workspaces" />
+      <Resource name="workspace_members" />
+      <Resource name="source_connections_safe" />
+      <Resource name="source_queries" />
+      <Resource name="ingestion_jobs" />
+      <Resource name="source_records" />
+      <Resource name="source_snapshots" />
+      <Resource name="field_mapping_sets" />
+      <Resource name="field_mapping_versions" />
+      <Resource name="companies" />
+      <Resource name="company_field_facts" />
+      <Resource name="company_evidence" />
+      <Resource name="risk_events" />
+      <Resource name="qualifications" />
+      <Resource name="company_lists" />
+      <Resource name="company_list_members" />
+      <Resource name="rule_sets" />
+      <Resource name="rule_set_versions" />
+      <Resource name="rule_runs" />
+      <Resource name="rule_results" />
+      <Resource name="manual_reviews" />
+      <Resource name="exports" />
+      <Resource name="audit_logs" />
     </Admin>
   );
 };
@@ -280,63 +330,62 @@ const MobileAdmin = (
     layout?: LayoutComponent;
   },
 ) => {
-  const queryClient = new QueryClient({
-    defaultOptions: {
-      queries: {
-        gcTime: 1000 * 60 * 60 * 24, // 24 hours
-        networkMode: "offlineFirst",
-      },
-      mutations: {
-        networkMode: "offlineFirst",
-      },
-    },
-  });
-  const asyncStoragePersister = createAsyncStoragePersister({
-    storage: localStorage,
-  });
-
   return (
-    <PersistQueryClientProvider
-      client={queryClient}
-      persistOptions={{ persister: asyncStoragePersister }}
+    <Admin
+      layout={props.layout ?? WorkbenchLayout}
+      dashboard={props.dashboard ?? FindCompaniesPage}
+      {...props}
     >
-      <Admin
-        queryClient={queryClient}
-        layout={props.layout ?? MobileLayout}
-        dashboard={props.dashboard ?? MobileDashboard}
-        {...props}
-      >
-        <CustomRoutes noLayout>
-          <Route path={SignupPage.path} element={<SignupPage />} />
-          <Route
-            path={ConfirmationRequired.path}
-            element={<ConfirmationRequired />}
-          />
-          <Route path={SetPasswordPage.path} element={<SetPasswordPage />} />
-          <Route
-            path={ForgotPasswordPage.path}
-            element={<ForgotPasswordPage />}
-          />
-          <Route path={OAuthConsentPage.path} element={<OAuthConsentPage />} />
-        </CustomRoutes>
-        <CustomRoutes>
-          <Route
-            path={SettingsPageMobile.path}
-            element={<SettingsPageMobile />}
-          />
-          <Route path={ChangelogPage.path} element={<ChangelogPage />} />
-        </CustomRoutes>
-        <Resource
-          name="contacts"
-          list={ContactListMobile}
-          show={ContactShow}
-          recordRepresentation={contacts.recordRepresentation}
-        >
-          <Route path=":id/notes/:noteId" element={<NoteShowPage />} />
-        </Resource>
-        <Resource name="companies" show={CompanyShow} />
-        <Resource name="tasks" list={MobileTasksList} />
-      </Admin>
-    </PersistQueryClientProvider>
+      <CustomRoutes noLayout>
+        <Route path={SignupPage.path} element={<SignupPage />} />
+        <Route
+          path={ConfirmationRequired.path}
+          element={<ConfirmationRequired />}
+        />
+        <Route path={SetPasswordPage.path} element={<SetPasswordPage />} />
+        <Route
+          path={ForgotPasswordPage.path}
+          element={<ForgotPasswordPage />}
+        />
+        <Route path={OAuthConsentPage.path} element={<OAuthConsentPage />} />
+      </CustomRoutes>
+      <CustomRoutes>
+        <Route path="/lists" element={<MyListsPage />} />
+        <Route path="/lists/:listId" element={<ListDetailPage />} />
+        <Route path="/reports/:jobId" element={<PublicReportPage />} />
+        <Route path="/sources" element={<SourceConnectionsPage />} />
+        <Route path="/batches" element={<BatchesPage />} />
+        <Route path="/mappings" element={<FieldMappingsPage />} />
+        <Route path="/rules" element={<RuleTemplatesPage />} />
+        <Route path="/runs" element={<RunsPage />} />
+        <Route path="/review" element={<EnterpriseReviewPage />} />
+        <Route path="/conflicts" element={<ConflictsPage />} />
+        <Route path="/exports" element={<ExportsPage />} />
+        <Route path="/settings" element={<WorkbenchSettingsPage />} />
+      </CustomRoutes>
+      <Resource name="workspaces" />
+      <Resource name="workspace_members" />
+      <Resource name="source_connections_safe" />
+      <Resource name="source_queries" />
+      <Resource name="ingestion_jobs" />
+      <Resource name="source_records" />
+      <Resource name="source_snapshots" />
+      <Resource name="field_mapping_sets" />
+      <Resource name="field_mapping_versions" />
+      <Resource name="companies" />
+      <Resource name="company_field_facts" />
+      <Resource name="company_evidence" />
+      <Resource name="risk_events" />
+      <Resource name="qualifications" />
+      <Resource name="company_lists" />
+      <Resource name="company_list_members" />
+      <Resource name="rule_sets" />
+      <Resource name="rule_set_versions" />
+      <Resource name="rule_runs" />
+      <Resource name="rule_results" />
+      <Resource name="manual_reviews" />
+      <Resource name="exports" />
+      <Resource name="audit_logs" />
+    </Admin>
   );
 };

@@ -3,24 +3,29 @@ import { Notification } from "@/components/admin/notification";
 import { useConfigurationContext } from "@/components/atomic-crm/root/ConfigurationContext";
 
 export const Layout = ({ children }: React.PropsWithChildren) => {
-  const { darkModeLogo, title } = useConfigurationContext();
+  const { title } = useConfigurationContext();
 
   return (
-    <div className="min-h-screen flex">
-      <div className="container relative grid flex-col items-center justify-center sm:max-w-none lg:grid-cols-2 lg:px-0">
-        <div className="relative hidden h-full flex-col bg-muted p-10 text-white dark:border-r lg:flex">
-          <div className="absolute inset-0 bg-zinc-900" />
-          <div className="relative z-20 flex items-center text-lg font-medium">
-            <img className="h-6 mr-2" src={darkModeLogo} alt={title} />
+    <div className="min-h-screen bg-[#f5f5f7] text-[#1d1d1f]">
+      <header className="mx-auto flex h-20 w-full max-w-6xl items-center px-5 sm:h-24 sm:px-8">
+        <div className="flex items-center gap-3">
+          <img
+            className="size-10 rounded-[12px] shadow-[0_8px_24px_rgba(0,0,0,0.14)]"
+            src="/appIcon/512.png"
+            alt=""
+          />
+          <span className="text-[17px] font-semibold tracking-[-0.01em]">
             {title}
-          </div>
+          </span>
         </div>
-        <div className="lg:p-8">
-          <div className="mx-auto flex w-full flex-col justify-center space-y-6 sm:w-[350px]">
+      </header>
+      <main className="mx-auto flex min-h-[calc(100vh-8rem)] w-full max-w-6xl items-center justify-center px-4 pb-14 sm:min-h-[calc(100vh-9rem)] sm:px-8">
+        <section className="w-full max-w-[480px] rounded-[30px] border border-black/[0.06] bg-white p-6 shadow-[0_24px_80px_rgba(15,23,42,0.10)] sm:p-9">
+          <div className="flex w-full flex-col justify-center space-y-6">
             {children}
           </div>
-        </div>
-      </div>
+        </section>
+      </main>
       <Notification />
     </div>
   );

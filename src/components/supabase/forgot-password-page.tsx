@@ -5,6 +5,8 @@ import { Layout } from "@/components/supabase/layout";
 import type { FieldValues, SubmitHandler } from "react-hook-form";
 import { TextInput } from "@/components/admin/text-input";
 import { Button } from "@/components/ui/button";
+import { ArrowLeft, KeyRound } from "lucide-react";
+import { Link } from "react-router";
 
 interface FormData {
   email: string;
@@ -28,6 +30,11 @@ export const ForgotPasswordPage = () => {
       setLoading(true);
       await resetPassword({
         email: values.email,
+        // Supabase must return to the static bridge before the hash router can
+        // consume recovery tokens. Build from the configured application base
+        // instead of document.baseURI: a fallback route can otherwise append
+        // auth-callback.html repeatedly after a previous recovery attempt.
+        redirectTo: new URL("/auth-callback.html", window.location.origin).href,
       });
     } catch (error: any) {
       notify(
@@ -56,15 +63,14 @@ export const ForgotPasswordPage = () => {
   return (
     <Layout>
       <div className="flex flex-col space-y-2 text-center">
-        <h1 className="text-2xl font-semibold tracking-tight">
-          {translate("ra-supabase.reset_password.forgot_password", {
-            _: "Forgot password?",
-          })}
+        <span className="mx-auto mb-3 grid size-11 place-items-center rounded-2xl bg-[#e8f2ff] text-[#0071e3]">
+          <KeyRound className="size-5" />
+        </span>
+        <h1 className="text-[30px] font-semibold tracking-[-0.035em]">
+          找回密码
         </h1>
-        <p>
-          {translate("ra-supabase.reset_password.forgot_password_details", {
-            _: "Enter your email to receive a reset password link.",
-          })}
+        <p className="text-sm leading-6 text-[#6e6e73]">
+          输入管理员邮箱。如果账号存在，系统会发送安全的密码重置链接。
         </p>
       </div>
       <Form<FormData>
@@ -79,12 +85,21 @@ export const ForgotPasswordPage = () => {
           autoComplete="email"
           validate={required()}
         />
-        <Button type="submit" className="cursor-pointer" disabled={loading}>
-          {translate("crm.action.reset_password", {
-            _: "Reset password",
-          })}
+        <Button
+          type="submit"
+          className="h-12 w-full cursor-pointer rounded-full bg-[#0071e3] text-[15px] hover:bg-[#0077ed]"
+          disabled={loading}
+        >
+          {loading ? "正在发送…" : "发送重置链接"}
         </Button>
       </Form>
+      <Link
+        to="/login"
+        className="flex items-center justify-center gap-1.5 text-sm font-medium text-[#0066cc] hover:underline"
+      >
+        <ArrowLeft className="size-4" />
+        返回登录
+      </Link>
     </Layout>
   );
 };

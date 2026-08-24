@@ -12,6 +12,8 @@
 //   3 - could NOT decide: --session missing, or the passed <SESSION_SHORT>
 //       has session-base siblings but no refs of its own (likely a mismatch).
 import { execFileSync } from "node:child_process";
+import { resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import {
   loadConfig,
   isDeployEnabled,
@@ -157,4 +159,4 @@ function main() {
   if (relevant.length) process.stdout.write(`${relevant.join("\n")}\n`);
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) main();
+if (fileURLToPath(import.meta.url) === resolve(process.argv[1] ?? "")) main();

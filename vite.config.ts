@@ -8,9 +8,16 @@ import createHtmlPlugin from "vite-plugin-simple-html";
 
 // https://vitejs.dev/config/
 export default defineConfig({
+  // Concurrent isolated acceptance environments must not rewrite the same
+  // optimized-dependency cache; doing so invalidates lazy route imports in
+  // the other running UI.
+  cacheDir: process.env.VITE_CACHE_DIR || "node_modules/.vite",
   server: {
-    port: 5173,
+    port: 3101,
     host: true,
+  },
+  optimizeDeps: {
+    include: ["jszip"],
   },
   plugins: [
     react(),
@@ -67,6 +74,10 @@ export default defineConfig({
     preserveSymlinks: true,
     alias: {
       "@": path.resolve(__dirname, "./src"),
+      // JSZip's package-level browser field points at a prebuilt bundle. Use
+      // its source entry so every transitive module remains traceable in the
+      // lockfile and the commercial SBOM.
+      jszip: path.resolve(__dirname, "./node_modules/jszip/lib/index.js"),
     },
   },
 });

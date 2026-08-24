@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en" translate="no" class="notranslate">
+<html lang="zh-CN" translate="no" class="notranslate">
     <head>
         <meta charset="utf-8" />
         <meta
@@ -10,7 +10,7 @@
         <meta name="google" content="notranslate" />
         <link rel="manifest" href="./manifest.json" />
         <link rel="shortcut icon" href="./favicon.ico" />
-        <title>Atomic CRM</title>
+        <title>企业名单工作台</title>
         <style>
             body {
                 margin: 0;
@@ -110,7 +110,7 @@
     </head>
 
     <body>
-        <noscript> You need to enable JavaScript to run this app. </noscript>
+        <noscript>请允许 JavaScript 以完成安全验证。</noscript>
         <div id="root">
             <div class="loader-container">
                 <div class="loader">Loading...</div>
@@ -130,9 +130,27 @@
         };
 
         function interceptAuthCallback() {
-                const hash = window.location.hash;
-                const {access_token, refresh_token, type} = getUrlParams();
-                window.location.href = `./#/auth-callback?access_token=${access_token}&refresh_token=${refresh_token}&type=${type}`;
+            const { access_token, refresh_token, type } = getUrlParams();
+            // Some development servers resolve a public file with a trailing
+            // path segment. Strip the bridge name explicitly so the redirect
+            // is stable both at `/auth-callback.html` and under a Vite base.
+            const appBasePath =
+                window.location.pathname.replace(
+                    /(?:auth-callback\.html\/?)+$/,
+                    ""
+                ) || "/";
+            const callbackParams = new URLSearchParams({
+                access_token: access_token || "",
+                refresh_token: refresh_token || "",
+                type: type || "",
+            });
+
+            // Leave this static bridge and enter the application's hash router.
+            // replace() also prevents recovery tokens from remaining as a
+            // separate callback-page entry in browser history.
+            window.location.replace(
+                `${window.location.origin}${appBasePath}#/auth-callback?${callbackParams.toString()}`
+            );
         }
     
         // Call the function to intercept the auth callback

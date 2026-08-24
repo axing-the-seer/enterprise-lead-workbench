@@ -1,0 +1,134 @@
+---
+title: 数据源映射与冲突规范
+description: 获客助手、企查查、腾讯云 Web 证据和客户文件进入企业名单工作台时的生产映射契约。
+---
+
+本项目把数据接入拆成两层：连接器负责在服务端取得授权响应，`ProviderAdapter` 负责确定性地完成 `raw -> canonical -> provenance`。适配器不发起网络请求，不读取密钥，也不允许模型猜字段。
+
+## 生产边界
+
+1. 每个 canonical 字段都要有 `provenance`：供应商、原字段、获取时间、单位、空值语义、使用范围。
+2. `source_records.raw_payload` 是受严格租户权限保护的原始来源记录，只用于审计、重放和纠错，不提供给普通列表、导出、REST 或 MCP。`sanitizedRaw` 则是适配器生成的白名单投影；内部主键、凭据、未映射字段和明文联系方式不得进入该投影。
+3. `0` 是合法值；空白、未采集、无权限、被脱敏和未发现分别使用 `not_provided` / `not_collected` / `not_authorized` / `redacted` / `not_found`。
+4. 注册资本只在单位明确时统一到 `registeredCapital.valueWan`（万元人民币）。原列和值中都没有单位时，保留 `raw`，`valueWan=null`，语义为 `unknown`。
+5. 名单中没有风险标签不等于企业无风险。未完整调用风险产品时，`riskSnapshot.severity=unknown`。
+6. 风险和业务优先级是两条独立的轴。高业务匹配可以同时被风险门禁阻断，不用一个“综合分”混淆。
+
+## `ProviderAdapter` 契约
+
+`src/providers/contracts.ts` 提供统一接口：
+
+```ts
+interface ProviderAdapter<TRaw, TOptions> {
+    descriptor: ProviderDescriptor;
+    normalizeRecord(
+        raw: TRaw,
+        context: ProviderContext,
+        options: TOptions,
+        sourceIndex: number,
+    ): AdaptedProviderRecord;
+    normalizeBatch(
+        records: readonly TRaw[],
+        context: ProviderContext,
+        options: TOptions,
+    ): ProviderBatch;
+}
+```
+
+`ProviderBatch.records[]` 同时保留 `sanitizedRaw`、`canonical` 和 `provenance`，便于字段预览、审计和回归测试。界面和 API 使用 `canonicalRecords`，不直接依赖任一数据商的响应字段。
+
+## 获客助手（KC）
+
+适配器：`src/providers/kc/adapter.ts`；Provider ID：`kingdee-credit-kc-assistant`。
+
+| 获客助手字段      | canonical 字段                       | 规则                                       |
+| ----------------- | ------------------------------------ | ------------------------------------------ |
+| `companyName`     | `companyName`                        | 必填；缺失时整条拒绝                       |
+| `taxId`           | `creditCode`                         | 15–18 位大写字母数字；非法值不猜测         |
+| `capitalNum`      | `registeredCapital.valueWan`         | 已审核产品口径为万元                       |
+| `status`          | `status.raw/normalized`              | 保留原值后映射中文状态                     |
+| `idy1` / `idy2`   | `industry.l1/l2`                     | 不反推供应商内部行业码                     |
+| `insuredNum`      | `insuredCount`                       | `0` 保留，空值为 `null`                    |
+| `phone` / `email` | `contact.*Masked`                    | canonical 和 `sanitizedRaw` 都只保留脱敏值 |
+| `tag.blue`        | `qualifications` + `operational`     | 只按明确资质关键词分类                     |
+| `tag.red`         | `tags.risk` + `riskSnapshot.signals` | 只保留实际返回的正向信号                   |
+
+`companyId` 等数据商内部主键不进入 canonical、`sanitizedRaw`、日志或导出；如供应商原始响应确实包含它，只能留在受限的 `source_records.raw_payload` 中。
+
+### 单企工商司法报告
+
+适配器：`src/providers/kc/risk-adapter.ts`。它接收已成功的工商司法报告 `data`，把 `entInfo` 映射到同一 canonical 企业，并将经营异常、行政处罚、欠税、失信被执行、被执行、法院公告、裁判文书、股权冻结、股权出质和动产抵押映射为独立 `riskSnapshot.signals`。
+
+- 数组区块保留确定的 `count`；明确非空对象只记录 `present=true`，不猜数量；未返回的区块使用 `present=null`。
+- 供应商 `entEval` 的 0–1000 分、A–E 级、条数和提示原样进入 `providerRiskAssessments`。工作台不对其换算、四舍五入，也不把供应商评分写成自有决策分。
+- 工商司法产品未返回事件等级，因此 adapter 的事件 `severity` 保持 `unknown`。客户可在可配置规则中对明确风险类别设置门禁。
+- `found:false` / `data:null` 不进入正常适配流程；它可能表示未订阅产品、产品禁用或余额不足，绝不能生成“无风险” canonical 记录。
+
+`sanitizedRaw` 只保留工商白名单字段、脱敏联系方式、各风险区块的命中/条数摘要和供应商评价；案件 ID、内部序号和司法明细不复制进快照。需要展示明细时，应由服务端在授权范围内从加密原响应生成 `company_evidence` / `risk_events`。
+
+## 企查查（QCC）
+
+适配器：`src/providers/qichacha/adapter.ts`。
+
+企查查 MCP、CLI 和不同购买 API 的 JSON 形状可能不同，所以不在核心适配器中猜英文字段。每个产品使用版本化 `QichachaMappingContract`，锁定字段路径、资本单位、状态值域、风险维度和用途。
+
+2026-08-20 的真实 CLI `--json` 验收确认，`get_company_registration_info` 返回中文键的扁平 JSON。内置 `QICHACHA_CLI_CN_REGISTRATION_CONTRACT` 覆盖：
+
+- `企业名称`、`统一社会信用代码`、`法定代表人`、`登记状态`、`成立日期`；
+- `企业类型`、`注册资本`（已验证为“数值 + 万元”字符串）、`实缴资本`；
+- `人员规模`、`参保人数`（可为数字字符串）、`所属地区`、`国标行业`；
+- `注册地址`、`经营范围`、`核准日期`、`登记机关`。
+
+`所属地区` 只进入 `region.raw`；在产品没有分别返回省/市/区县字段时，不从地区文本或注册地址猜拆。`人员规模` 始终保留 `personnelScale.raw`；只对明确的单值、`下限-上限`、`下限以上` 或 `上限以下` 格式生成边界，其他形态的 `lowerBound/upperBound` 保持 `null`。
+
+不同 QCC 工具的响应不得盲目展平。编排层可以将工商和风险响应放在同一 bundle 中，然后在契约中指定路径。
+
+### 风险计数
+
+`riskScan` 必须明确：
+
+- 计数对象路径 `countsPath`；
+- 完整的原维度键 -> `code` / 中文名 / 风险等级映射；
+- `expectedDimensionCount` 和“全零是否表示该时点当前无在册记录”。
+
+适配器保留每个维度的 `count` 和 `present`，禁止跨维求和或自制企查查综合分。只有契约所有维度都完整返回且都为零时，才能记录 `severity=none`。新增或缺失维度会作为 schema drift 拒绝该批次。
+
+## CSV / Excel 中文字段
+
+适配器：`src/providers/csv/adapter.ts`。Excel 应先由文件层转成对象行，再进入同一适配器。
+
+内置别名包括企业/公司/客户主体名称、统一社会信用代码、法定代表人、企业类型、注册/实缴资本、核准日期、登记机关、登记/经营状态、地区及明确的省/市/区县列、人员规模、参保/社保人数、一二级/国标行业、资质/风险/经营标签。这些别名只提供候选映射；生产 GUI 仍应展示前 10 行的“原列 -> canonical 字段 -> 单位 -> 样例值”供用户确认。
+
+## 腾讯云联网搜索（Web 证据）
+
+执行器：`services/provider-worker/src/tencent-wsa.ts`；映射器：`src/providers/tencent-wsa/adapter.ts`；Provider ID：`tencent_wsa`。本适配器按腾讯云联网搜索 WSA 服务 API KEY 方式实现，固定调用 `POST https://api.wsa.cloud.tencent.com/SearchPro`，密钥只从服务器变量 `TENCENTCLOUD_WSA_APIKEY` 读取。参见 [腾讯云服务 API KEY 接入文档](https://cloud.tencent.com/document/product/1806/130615) 和 [SearchPro 字段文档](https://cloud.tencent.com/document/product/1806/121811)。
+
+Web 证据与企业名单来源严格分开：
+
+1. 任务必须传入当前工作空间已存在的 `companyId`。执行器从数据库重新读取企业名称和信用代码，不接受客户端传入的企业名称，也不会根据网页新建企业。
+2. 用户每次只选择一类证据：官网、产品/服务、获奖/荣誉、招中标、招聘、新闻或其他。该选项只用于构造确定性搜索词和标注 `claimType`，不说明页面内容已被证实。
+3. 只白名单保留 WSA 文档字段 `title` / `date` / `url` / `passage` / `site` / `score` / `authority_level`。`content`、图片、favicon、子链、供应商未知字段和任何疑似凭证字段不落库。
+4. `url` 必须是 HTTP(S)，去除 fragment 后按企业 + URL + `claimType` 稳定去重。`passage` 只作搜索结果摘要，`score` 只作供应商相关性证据，不转换为工作台业务分。
+5. 新入库项的 `evidence_status=unverified`、`usage_scope=link_only`。它们可供人工点开原网页复核，但不写入 `company_field_facts`，不更新工商主表，不覆盖企查查或获客助手事实。
+6. “测试连接”只校验固定端点与服务器凭证配置，不调用搜索。只有用户对某家企业明确点击补证时才会产生一次可计费请求。
+
+原始响应不直接进入通用快照。`source_records.raw_payload` 保存的也是上述白名单投影，便于在数据授权变化时缩小二次分发范围。
+
+## 去重和冲突
+
+1. 有效统一社会信用代码相同：合并。
+2. 一条有代码、一条无代码：只有规范化完整企业名唯一命中一个主体时合并。
+3. 同名对应多个不同代码：保持分离，无代码记录也不猜归属。
+4. 全部无代码：只在规范化完整名称相同时合并。
+
+字段选择默认按“非空 -> 已配置来源优先级 -> 源更新时间 -> 获取时间 -> Provider ID”决定，以保证重复执行结果一致。两个不同非空值永远进入 `conflicts[]`；因此“选择 canonical 值”不等于静默覆盖原数据。正向风险信号采用并集，一个来源未返回标签不能抹掉另一来源已报告的风险。
+
+## 新数据源验收
+
+每个新 Provider 必须在开启全量前完成：
+
+1. 官方文档和当前账号的实际响应审核；
+2. 成功、空结果、无权限/错误的脱敏 fixture；
+3. 字段路径、单位、值域、空值、分页、限流和 schema drift 回归测试；
+4. 用 10 家真实企业做小批运行，人工确认映射和预计调用数；
+5. 凭据、内部 ID、明文联系方式和超出授权范围的原响应不进入日志、fixture 和发布包。

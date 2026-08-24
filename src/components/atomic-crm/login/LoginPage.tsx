@@ -4,8 +4,8 @@ import type { SubmitHandler, FieldValues } from "react-hook-form";
 import { Link, useLocation, useNavigate } from "react-router";
 import { Button } from "@/components/ui/button";
 import { TextInput } from "@/components/admin/text-input";
-import { Notification } from "@/components/admin/notification";
-import { useConfigurationContext } from "@/components/atomic-crm/root/ConfigurationContext.tsx";
+import { ShieldCheck } from "lucide-react";
+import { Layout } from "@/components/supabase/layout";
 import { SSOAuthButton } from "./SSOAuthButton";
 import {
   disableEmailPasswordAuthentication,
@@ -22,7 +22,6 @@ import {
  * @see {@link https://marmelab.com/shadcn-admin-kit/docs/security Security documentation}
  */
 export const LoginPage = (props: { redirectTo?: string }) => {
-  const { darkModeLogo, title } = useConfigurationContext();
   const { redirectTo } = props;
   const [loading, setLoading] = useState(false);
   const hasDisplayedRecoveryNotification = useRef(false);
@@ -89,68 +88,60 @@ export const LoginPage = (props: { redirectTo?: string }) => {
   };
 
   return (
-    <div className="min-h-screen flex">
-      <div className="relative grid w-full lg:grid-cols-2">
-        <div className="relative hidden h-full flex-col bg-muted p-10 text-white dark:border-r lg:flex">
-          <div className="absolute inset-0 bg-zinc-900" />
-          <div className="relative z-20 flex items-center text-lg font-medium">
-            <img className="h-6 mr-2" src={darkModeLogo} alt={title} />
-            {title}
-          </div>
-        </div>
-        <div className="flex flex-col justify-center w-full p-4 lg:p-8">
-          <div className="w-full space-y-6 lg:mx-auto lg:w-[350px]">
-            <div className="text-center">
-              <h1 className="text-2xl font-semibold tracking-tight">
-                {translate("ra.auth.sign_in")}
-              </h1>
-            </div>
-            {disableEmailPasswordAuthentication ? null : (
-              <Form className="space-y-8" onSubmit={handleSubmit}>
-                <TextInput
-                  label="ra.auth.email"
-                  source="email"
-                  type="email"
-                  validate={required()}
-                />
-                <TextInput
-                  label="ra.auth.password"
-                  source="password"
-                  type="password"
-                  validate={required()}
-                />
-                <div className="flex flex-col gap-4">
-                  <Button
-                    type="submit"
-                    className="cursor-pointer"
-                    disabled={loading}
-                  >
-                    {translate("ra.auth.sign_in")}
-                  </Button>
-                </div>
-              </Form>
-            )}
-            {googleWorkplaceDomain ? (
-              <SSOAuthButton className="w-full" domain={googleWorkplaceDomain}>
-                {translate("crm.auth.sign_in_google_workspace", {
-                  _: "Sign in with Google Workplace",
-                })}
-              </SSOAuthButton>
-            ) : null}
-            {disableEmailPasswordAuthentication ? null : (
-              <Link
-                to={"/forgot-password"}
-                className="block text-sm text-center hover:underline"
-              >
-                {translate("ra-supabase.auth.forgot_password", {
-                  _: "Forgot password?",
-                })}
-              </Link>
-            )}
-          </div>
-        </div>
+    <Layout>
+      <div>
+        <span className="mb-5 grid size-11 place-items-center rounded-2xl bg-[#e8f2ff] text-[#0071e3]">
+          <ShieldCheck className="size-5" />
+        </span>
+        <h1 className="text-[30px] font-semibold tracking-[-0.035em]">
+          欢迎回来
+        </h1>
+        <p className="mt-2 text-sm leading-6 text-[#6e6e73]">
+          登录后继续管理企业名单、来源核验和公开信息报告。
+        </p>
       </div>
-      <Notification />
-    </div>
+      {disableEmailPasswordAuthentication ? null : (
+        <Form className="space-y-5" onSubmit={handleSubmit}>
+          <TextInput
+            label="ra.auth.email"
+            source="email"
+            type="email"
+            validate={required()}
+          />
+          <TextInput
+            label="ra.auth.password"
+            source="password"
+            type="password"
+            validate={required()}
+          />
+          <Button
+            type="submit"
+            className="h-12 w-full cursor-pointer rounded-full bg-[#0071e3] text-[15px] hover:bg-[#0077ed]"
+            disabled={loading}
+          >
+            {loading ? "正在登录…" : translate("ra.auth.sign_in")}
+          </Button>
+        </Form>
+      )}
+      {googleWorkplaceDomain ? (
+        <SSOAuthButton
+          className="h-12 w-full rounded-full"
+          domain={googleWorkplaceDomain}
+        >
+          使用 Google Workspace 登录
+        </SSOAuthButton>
+      ) : null}
+      {disableEmailPasswordAuthentication ? null : (
+        <Link
+          to="/forgot-password"
+          className="block text-center text-sm font-medium text-[#0066cc] hover:underline"
+        >
+          忘记密码？
+        </Link>
+      )}
+      <p className="border-t border-black/[0.06] pt-5 text-center text-xs leading-5 text-[#86868b]">
+        账号、名单和数据源按工作空间隔离。平台不会在浏览器中保存供应商密钥。
+      </p>
+    </Layout>
   );
 };

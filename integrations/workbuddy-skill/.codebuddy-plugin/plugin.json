@@ -1,0 +1,10 @@
+{
+  "name": "enterprise-list-workbench",
+  "version": "0.2.0",
+  "description": "用真实获客数据生成可追溯企业名单，并把 Ego Lite 证据交给 Agent 生成统一格式的企业情报报告。",
+  "author": {
+    "name": "企业名单工作台"
+  },
+  "license": "UNLICENSED",
+  "skills": ["./enterprise-lead-workbench", "./enterprise-public-report"]
+}

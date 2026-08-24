@@ -18,6 +18,9 @@ __screenshots__
 # misc
 .DS_Store
 .env.local
+.env.*
+!.env.example
+!**/.env.example
 .env.production
 .env.development.local
 .env.test.local
@@ -30,6 +33,7 @@ yarn-error.log*
 supabase/.branches
 supabase/.temp
 .supabase-e2e/
+.supabase-acceptance/
 
 dist/
 /lib/
@@ -39,7 +43,7 @@ dist/
 # Shadcn Registry
 public/r/
 
-!supabase/functions/.env
+supabase/functions/.env
 .claude/settings.local.json
 
 # Harness scratch (promotion lock; worktrees + test-results also cleaned at SessionEnd)
@@ -49,6 +53,10 @@ public/r/
 
 # Playwright
 .playwright-mcp/
+.playwright-cli/
+.vitest-attachments/
+.supabase-dbtest/
+.supabase-onboarding-acceptance/
 node_modules/
 /test-results/
 /playwright-report/
@@ -57,4 +65,4 @@ node_modules/
 /playwright/.auth/
 
 *.lock
- 
+!/deno.lock

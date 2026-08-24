@@ -1,0 +1,81 @@
+---
+title: Enterprise Workbench Architecture
+description: Production boundaries shared by the Web UI, REST API, MCP tools, providers, and deterministic rule engine.
+---
+
+# Enterprise Workbench Architecture
+
+企业名单工作台是独立 Web 应用。Web UI、REST/OpenAPI 和 MCP 只是同一应用服务的三种入口，不能各自实现一套业务逻辑。
+
+```text
+Web UI ────────────┐
+REST / OpenAPI ────┼──> Application services
+Domain MCP ────────┘          │
+                              ├── Source connections and jobs
+                              ├── Immutable source snapshots
+                              ├── Entity resolution and field provenance
+                              ├── Deterministic rule versions and runs
+                              ├── Manual review and audit
+                              └── Export jobs
+                                      │
+          Kingdee Credit ─────────────┤
+          Qichacha ───────────────────┤
+          CSV / XLSX / JSON ──────────┤
+          Web evidence ───────────────┘
+```
+
+## Application boundaries
+
+- The browser never receives provider credentials. Connections store only a server-side secret reference.
+- Every provider response is persisted as an immutable snapshot before mapping.
+- A normalized fact always points to its source snapshot, mapping version, and retrieval time.
+- Provider conflicts remain visible. A display preference never deletes competing facts.
+- Missing, not-found, entitlement-unavailable, provider-error, and not-queried are different states.
+- Rules run deterministically against a declared input batch. Rules cannot call the network while evaluating a company.
+- External enrichment is a separate, auditable job that produces new snapshots before another rule run.
+- Every business table is scoped to a workspace and protected by row-level security.
+
+## Provider roles
+
+### Kingdee Credit customer-acquisition service
+
+The first-party adapter supports broad company-list retrieval from natural business filters and subscribed single-company工商司法核验. The adapter records the Chinese query summary, page information, data-provider attribution, and returned field availability. Internal provider parameters and identifiers are not exposed to end users.
+
+### Qichacha
+
+The first-party adapter invokes only capabilities enabled on the user's connection. It can run through a deterministic server-side MCP client, CLI driver, or contracted API driver. Entity ambiguity must be resolved before paid downstream calls; the application does not automatically select the first fuzzy-search candidate.
+
+### File imports
+
+CSV, XLSX, and JSON imports use a versioned field map. Users preview the parsed headers, identity coverage, invalid values, and representative rows before committing an ingestion job. Import retries use an idempotency key and do not create duplicate batches.
+
+### Web evidence
+
+Web Search is an enrichment provider, not an authoritative enterprise registry. Evidence stores URL, title, publication or observation time, retrieval time, claim, and related company. It cannot silently overwrite an official provider fact.
+
+## Rule lifecycle
+
+1. A rule set starts as a draft.
+2. A draft may be edited through the GUI or submitted through an AI client.
+3. Validation checks field existence, value type, missing-value policy, unsupported operators, and contradictory gates.
+4. Publishing creates an immutable rule version.
+5. A rule run joins one immutable input batch with one rule version.
+6. Every decision stores matched rule IDs, source fact IDs, explanation text, and engine version.
+7. Manual overrides require a reason and create an audit event; they never alter the original automatic decision.
+
+Business priority, contact-data completeness, and risk review status are separate outputs. A single opaque score must not replace these dimensions.
+
+## Job contract
+
+The initial server action endpoint is `workbench-jobs`. It accepts authenticated, workspace-scoped actions:
+
+- `test_connection`
+- `start_ingestion`
+- `run_ruleset`
+- `start_export`
+
+The response includes a job identifier and one of `queued`, `running`, `succeeded`, `failed`, or `cancelled`. The UI and Agent must not turn `queued` into a success claim.
+
+## AI contract
+
+The production MCP server exposes domain tools only. Arbitrary SQL read or write tools from the upstream CRM are removed. MCP permissions are scoped by workspace and role, use the same application services as the GUI, and write the same audit events.

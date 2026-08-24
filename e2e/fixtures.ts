@@ -1,262 +1,222 @@
 import { test as base, expect, type Page } from "@playwright/test";
 import { createClient } from "@supabase/supabase-js";
 
-const adminSupabase = createClient(
-  process.env.VITE_SUPABASE_URL ?? "http://127.0.0.1:54341",
-  process.env.SERVICE_ROLE_KEY!,
-  { auth: { autoRefreshToken: false, persistSession: false } },
-);
+const supabaseUrl = process.env.VITE_SUPABASE_URL ?? "http://127.0.0.1:54341";
+const serviceRoleKey = process.env.SERVICE_ROLE_KEY!;
+const publishableKey = process.env.VITE_SB_PUBLISHABLE_KEY!;
+const adminSupabase = createClient(supabaseUrl, serviceRoleKey, {
+  auth: { autoRefreshToken: false, persistSession: false },
+});
 
-// Tables in FK-safe deletion order (children before parents)
+// Children precede parents so every test starts with an isolated tenant.
 const TABLES = [
+  "manual_reviews",
+  "rule_results",
+  "company_evidence",
+  "company_field_facts",
+  "qualifications",
+  "risk_events",
+  "company_identifiers",
+  "company_list_members",
+  "exports",
+  "rule_runs",
+  "source_snapshots",
+  "source_records",
+  "ingestion_jobs",
+  "source_queries",
+  "field_mapping_versions",
+  "field_mapping_sets",
+  "rule_set_versions",
+  "rule_sets",
+  "source_connections",
+  "audit_logs",
+  "company_lists",
+  "companies",
+  "workspace_members",
+  "workspaces",
   "tasks",
   "contact_notes",
   "deal_notes",
   "deals",
   "contacts",
-  "companies",
   "tags",
   "favicons_excluded_domains",
   "configuration",
   "sales",
-];
+] as const;
 
 async function resetDb() {
   for (const table of TABLES) {
-    // Supabase client delete need a where clause to get executed, so we use one that will match on all rows (id is not null)
-    await adminSupabase.from(table).delete().not("id", "is", null);
+    const { error } = await adminSupabase
+      .from(table)
+      .delete()
+      .not("id", "is", null);
+    if (error && error.code !== "42P01") {
+      throw new Error(`Failed to reset ${table}: ${error.message}`);
+    }
   }
 
-  // Delete all auth users (cascades to sales via DB trigger)
-  const { data } = await adminSupabase.auth.admin.listUsers();
-  await Promise.all(
-    data.users.map((user) => adminSupabase.auth.admin.deleteUser(user.id)),
-  );
+  const { data, error } = await adminSupabase.auth.admin.listUsers();
+  if (error) throw error;
+  for (const user of data.users) {
+    const { error: deleteError } = await adminSupabase.auth.admin.deleteUser(
+      user.id,
+    );
+    if (deleteError) throw deleteError;
+  }
 }
 
-async function createUser({
-  email,
-  password,
-}: {
-  email: string;
-  password: string;
-}) {
+async function createAdministrator(email: string, password: string) {
+  const claimId = crypto.randomUUID();
+  const { data: issued, error: claimError } = await adminSupabase.rpc(
+    "issue_user_provisioning_claim",
+    {
+      p_claim_id: claimId,
+      p_email: email,
+      p_purpose: "administrator",
+      p_administrator: true,
+    },
+  );
+  if (claimError || issued !== true) {
+    throw new Error(
+      claimError?.message ?? "Failed to issue provisioning claim",
+    );
+  }
+
   const { data, error } = await adminSupabase.auth.admin.createUser({
     email,
     password,
     email_confirm: true,
+    user_metadata: { workbench_provisioning_claim_id: claimId },
+    app_metadata: { workbench_provisioning: "administrator" },
   });
-
-  if (error) {
-    throw new Error(`Failed to create user: ${error.message}`);
+  if (error || !data.user) {
+    throw new Error(error?.message ?? "Failed to create administrator");
   }
-
   return data.user;
 }
 
-async function createSales({
-  first_name,
-  last_name,
-  email,
-  password,
-}: {
-  first_name: string;
-  last_name: string;
+type WorkbenchSeed = {
   email: string;
   password: string;
-}) {
-  const { data: userData, error: userError } =
-    await adminSupabase.auth.admin.createUser({
-      email,
-      password,
-      email_confirm: true,
-    });
+  workspaceId: string;
+  listId: string;
+  companyId: string;
+};
 
-  if (userError) {
-    throw new Error(`Failed to create sales: ${userError.message}`);
-  }
+async function setupWorkbench(): Promise<WorkbenchSeed> {
+  const suffix = crypto.randomUUID().slice(0, 8);
+  const email = `owner-${suffix}@example.test`;
+  const password = "local-e2e-password-2026";
+  const user = await createAdministrator(email, password);
 
-  const { data, error } = await adminSupabase
-    .from("sales")
-    .update({ first_name, last_name, administrator: false })
-    .eq("user_id", userData.user?.id)
-    .select()
-    .single();
-
-  if (error) {
-    throw new Error(`Failed to create sales: ${error.message}`);
-  }
-
-  return data;
-}
-
-async function createNotes({
-  contactId,
-  salesId,
-  notes,
-}: {
-  contactId: string | number;
-  salesId: string | number;
-  notes: {
-    text: string;
-    date?: string;
-    status?: "cold" | "warm" | "hot";
-  }[];
-}) {
-  if (notes.length === 0) return;
-
-  const { error } = await adminSupabase.from("contact_notes").insert(
-    notes.map(({ text, date, status = "cold" }) => ({
-      contact_id: contactId,
-      sales_id: salesId,
-      text,
-      date,
-      status,
-    })),
+  const userSupabase = createClient(supabaseUrl, publishableKey, {
+    auth: { autoRefreshToken: false, persistSession: false },
+  });
+  const { error: loginError } = await userSupabase.auth.signInWithPassword({
+    email,
+    password,
+  });
+  if (loginError) throw loginError;
+  const { data: initialized, error: initializeError } = await userSupabase.rpc(
+    "initialize_workbench_workspace",
+    {
+      p_workspace_name: "自动化验收工作空间",
+      p_workspace_slug: `acceptance-${suffix}`,
+    },
   );
+  if (initializeError) throw initializeError;
+  const row = Array.isArray(initialized) ? initialized[0] : initialized;
+  const workspaceId = String(row?.workspace_id ?? "");
+  if (!workspaceId) throw new Error("Workspace initialization returned no ID");
 
-  if (error) {
-    throw new Error(`Failed to create notes: ${error.message}`);
-  }
-}
-
-async function createCompany({
-  name,
-  salesId,
-}: {
-  name: string;
-  salesId: string | number;
-}) {
-  const { data, error } = await adminSupabase
+  const { data: company, error: companyError } = await adminSupabase
     .from("companies")
-    .insert({ name, sales_id: salesId })
-    .select("id")
-    .single();
-
-  if (error) {
-    throw new Error(`Failed to create company: ${error.message}`);
-  }
-
-  return data;
-}
-
-async function createContact({
-  first_name,
-  last_name,
-  title = "",
-  company_id = null,
-  sales_id,
-  notes = [],
-}: {
-  first_name: string;
-  last_name: string;
-  title?: string;
-  company_id?: string | number | null;
-  sales_id: string | number;
-  notes?: {
-    text: string;
-    date?: string;
-    status?: "cold" | "warm" | "hot";
-  }[];
-}) {
-  const { data, error } = await adminSupabase
-    .from("contacts")
     .insert({
-      first_name,
-      last_name,
-      title,
-      company_id,
-      sales_id,
-      first_seen: new Date().toISOString(),
-      last_seen: new Date().toISOString(),
-      has_newsletter: false,
-      tags: [],
-      gender: "unknown",
-      status: "cold",
-      background: "",
-      email_jsonb: [],
-      phone_jsonb: [],
+      workspace_id: workspaceId,
+      name: "上海智造设备有限公司",
+      normalized_name: "上海智造设备有限公司",
+      deduplication_key: `uscc:91310000${suffix.toUpperCase()}TEST`,
+      unified_social_credit_code: `91310000${suffix.toUpperCase()}TEST`,
+      legal_representative: "张明",
+      operating_status: "存续",
+      company_type: "有限责任公司",
+      registered_capital_amount: 5000,
+      established_on: "2018-03-12",
+      province: "上海市",
+      city: "上海市",
+      district: "浦东新区",
+      industry_name: "专用设备制造业",
+      insured_employee_count: 86,
+      phone_number: "021-55556666",
+      primary_source: "huoke_assistant",
+      profile_status: "verified",
+      last_verified_at: new Date().toISOString(),
     })
     .select("id")
     .single();
+  if (companyError) throw companyError;
 
-  if (error) {
-    throw new Error(`Failed to create contact: ${error.message}`);
-  }
+  const { data: list, error: listError } = await adminSupabase
+    .from("company_lists")
+    .insert({
+      workspace_id: workspaceId,
+      name: "上海专用设备制造企业",
+      description: "由获客助手真实字段映射创建的自动化验收名单",
+      created_by: user.id,
+    })
+    .select("id")
+    .single();
+  if (listError) throw listError;
 
-  await createNotes({
-    contactId: data.id,
-    salesId: sales_id,
-    notes,
-  });
+  const { error: memberError } = await adminSupabase
+    .from("company_list_members")
+    .insert({
+      workspace_id: workspaceId,
+      company_list_id: list.id,
+      company_id: company.id,
+      membership_status: "included",
+      selection_reason: ["上海市", "专用设备制造业"],
+      added_by: user.id,
+    });
+  if (memberError) throw memberError;
 
-  return data;
+  await userSupabase.auth.signOut();
+  return {
+    email,
+    password,
+    workspaceId,
+    listId: String(list.id),
+    companyId: String(company.id),
+  };
 }
 
-const getMenuMethod = ({ page }: { page: Page; isMobile: boolean }) => ({
-  goToDashboard: async () => {
-    await page.getByRole("link", { name: "Dashboard" }).click();
-    await page.waitForLoadState("networkidle");
-  },
-  goToContacts: async () => {
-    await page.getByRole("link", { name: "Contacts" }).click();
-    await page.waitForLoadState("networkidle");
-  },
-});
-
-const dismissToast = async (page: Page, content: string) => {
-  await expect(page.getByText(content)).toBeVisible();
-  await page.getByLabel("Close toast").first().click();
-  // Since we are in optimistic UI, dismissing the toast trigger the request to the api linked to the toast message
-  await page.waitForLoadState("networkidle");
-};
+async function login(page: Page, seed: WorkbenchSeed) {
+  await page.goto("/");
+  await page.getByLabel("Email").fill(seed.email);
+  await page.getByLabel("Password").fill(seed.password);
+  await page.getByRole("button", { name: "Sign in" }).click();
+  await expect(
+    page.getByRole("heading", { name: "从真实名单到可交付结果" }),
+  ).toBeVisible();
+}
 
 export const test = base.extend<{
   resetDb: void;
-  createUser: typeof createUser;
-  createSales: typeof createSales;
-  createCompany: typeof createCompany;
-  createContact: typeof createContact;
-  createNotes: typeof createNotes;
-  menu: ReturnType<typeof getMenuMethod>;
-  dismissToast: (content: string) => Promise<void>;
+  setupWorkbench: typeof setupWorkbench;
+  login: (seed: WorkbenchSeed) => Promise<void>;
 }>({
   resetDb: [
-    // The first argument to a Playwright fixture function must use object destructuring ({}) — _ is not allowed.
-    // Playwright uses this to statically analyze which fixtures are requested.
     // eslint-disable-next-line no-empty-pattern
-    async ({}, use) => {
+    async ({}, provide) => {
       await resetDb();
-      await use();
+      await provide();
     },
     { auto: true },
   ],
   // eslint-disable-next-line no-empty-pattern
-  createUser: async ({}, cb) => {
-    await cb(createUser);
-  },
-  // eslint-disable-next-line no-empty-pattern
-  createSales: async ({}, cb) => {
-    await cb(createSales);
-  },
-  // eslint-disable-next-line no-empty-pattern
-  createCompany: async ({}, cb) => {
-    await cb(createCompany);
-  },
-  // eslint-disable-next-line no-empty-pattern
-  createContact: async ({}, cb) => {
-    await cb(createContact);
-  },
-  // eslint-disable-next-line no-empty-pattern
-  createNotes: async ({}, cb) => {
-    await cb(createNotes);
-  },
-  menu: async ({ page, isMobile }, cb) => {
-    await cb(getMenuMethod({ page, isMobile }));
-  },
-  dismissToast: async ({ page }, cb) => {
-    await cb((content: string) => dismissToast(page, content));
-  },
+  setupWorkbench: async ({}, provide) => provide(setupWorkbench),
+  login: async ({ page }, provide) => provide((seed) => login(page, seed)),
 });
 
-export { expect };
+export { expect, type WorkbenchSeed };

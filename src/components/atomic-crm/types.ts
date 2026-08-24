@@ -14,6 +14,14 @@ export type SignUpData = {
   password: string;
   first_name: string;
   last_name: string;
+  bootstrap_token: string;
+};
+
+export type BootstrapStatus = {
+  configured: boolean;
+  initialized: boolean;
+  claimInProgress: boolean;
+  available: boolean;
 };
 
 export type SalesFormData = {
