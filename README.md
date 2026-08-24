@@ -6,11 +6,11 @@ WorkBuddy 与其他 AI 客户端通过受控 MCP 或 REST/OpenAPI 调用同一�
 
 ## 产品演示
 
-[![企业名单工作台产品演示](./docs/screenshots/01-find-companies.png)](./docs/media/enterprise-lead-workbench-demo.mp4)
+<https://github.com/user-attachments/assets/8a4e4b1c-0b62-4004-9e84-c0012f249d3b>
 
-[播放或下载 1 分 29 秒产品演示（MP4，6.5 MB）](./docs/media/enterprise-lead-workbench-demo.mp4)
+1 分 29 秒演示：找企业 → 我的名单 → 名单详情 → 企业详情 → 企业调研报告。
 
-演示覆盖找企业、我的名单、企业详情和企业调研报告。画面中的联系电话均已脱敏。
+演示数据来自真实验收环境，画面中的联系电话均已脱敏。[下载 MP4（6.5 MB）](./docs/media/enterprise-lead-workbench-demo.mp4)
 
 ## 主要界面
 
