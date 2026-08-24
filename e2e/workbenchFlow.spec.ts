@@ -18,8 +18,10 @@ test("authenticated user sees the focused two-entry product flow", async ({
     primaryNavigation.getByRole("link", { name: "我的名单" }),
   ).toBeVisible();
 
-  await page.getByRole("button", { name: "确认条件并开始查找" }).click();
-  await expect(page.getByText("请至少设置两类有效范围条件")).toBeVisible();
+  await page.getByRole("button", { name: "开始查找" }).click();
+  await expect(
+    page.getByText("请先选择行业或输入企业/产品关键词；地区不选时按全国查找。"),
+  ).toBeVisible();
 
   await page.getByRole("button", { name: "配置" }).click();
   await expect(page.getByRole("heading", { name: "配置" })).toBeVisible();

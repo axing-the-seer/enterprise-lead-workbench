@@ -24,11 +24,11 @@ const TABLES = [
   "source_records",
   "ingestion_jobs",
   "source_queries",
+  "source_connections",
   "field_mapping_versions",
   "field_mapping_sets",
   "rule_set_versions",
   "rule_sets",
-  "source_connections",
   "audit_logs",
   "company_lists",
   "companies",
@@ -193,12 +193,10 @@ async function setupWorkbench(): Promise<WorkbenchSeed> {
 
 async function login(page: Page, seed: WorkbenchSeed) {
   await page.goto("/");
-  await page.getByLabel("Email").fill(seed.email);
-  await page.getByLabel("Password").fill(seed.password);
-  await page.getByRole("button", { name: "Sign in" }).click();
-  await expect(
-    page.getByRole("heading", { name: "从真实名单到可交付结果" }),
-  ).toBeVisible();
+  await page.getByLabel("邮箱").fill(seed.email);
+  await page.getByLabel("密码").fill(seed.password);
+  await page.getByRole("button", { name: "登录" }).click();
+  await expect(page.getByRole("heading", { name: "找企业" })).toBeVisible();
 }
 
 export const test = base.extend<{

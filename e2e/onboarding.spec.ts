@@ -34,9 +34,7 @@ test("first administrator continues into workspace initialization", async ({
   await page.getByLabel("Slug").fill("local-acceptance-workspace");
   await page.getByRole("button", { name: "创建并初始化" }).click();
 
-  await expect(
-    page.getByRole("heading", { name: "找到真正符合条件的企业" }),
-  ).toBeVisible();
+  await expect(page.getByRole("heading", { name: "找企业" })).toBeVisible();
   await expect(page.getByRole("link", { name: "找企业" })).toBeVisible();
   await expect(page.getByRole("link", { name: "我的名单" })).toBeVisible();
 });
