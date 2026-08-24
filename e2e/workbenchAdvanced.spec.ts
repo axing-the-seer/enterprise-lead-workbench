@@ -18,7 +18,9 @@ test("advanced pages are reachable without reviving the legacy CRM IA", async ({
     ["settings", "系统设置"],
   ] as const) {
     await page.goto(`/#/${path}`);
-    await expect(page.getByRole("heading", { name: heading })).toBeVisible();
+    await expect(
+      page.getByRole("heading", { name: heading, exact: true }),
+    ).toBeVisible();
     await expect(
       page.getByRole("navigation", { name: "主要导航" }).getByRole("link"),
     ).toHaveCount(2);

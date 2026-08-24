@@ -28,7 +28,7 @@ test("authenticated user sees the focused two-entry product flow", async ({
   await expect(page.getByText("获客助手").first()).toBeVisible();
   await expect(page.getByText("企查查").first()).toBeVisible();
   await expect(page.getByText("Ego Lite").first()).toBeVisible();
-  await page.getByRole("button", { name: "关闭" }).click();
+  await page.getByRole("button", { name: "关闭", exact: true }).click();
 });
 
 test("user manages a seeded source-backed list and opens company detail", async ({
