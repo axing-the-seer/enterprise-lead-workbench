@@ -167,5 +167,13 @@ jobs:
             - name: 🔨 Build provider worker
               run: npm run build:worker
 
+            - name: ⚙️ Setup Deno
+              uses: denoland/setup-deno@22d081ff2d3a40755e97629de92e3bcbfa7cf2ed # v2.0.5
+              with:
+                  deno-version: v2.8.3
+
+            - name: 📥 Cache locked Edge Function dependencies
+              run: deno cache --lock=deno.lock --frozen supabase/functions/*/index.ts
+
             - name: 📦 Validate production dependency inventory
               run: npm run compliance:check
