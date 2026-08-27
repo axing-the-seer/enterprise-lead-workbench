@@ -2,7 +2,8 @@
 
 | 明确需求 | 生产实现 | 验收证据 |
 |---|---|---|
-| 不是 Demo，而是完整软件 | 保留 Vite + React Router + ra-core + Supabase + Provider Worker；认证、租户、任务、审计、存储、导出均为真实链路 | `npm run build`；74 个测试文件、564 项通过、1 项跳过；12 项 Deno 合同/报告测试通过 |
+| 不是 Demo，而是完整软件 | 保留 Vite + React Router + ra-core + Supabase + Provider Worker；认证、租户、任务、审计、存储、导出均为真实链路 | `npm run build`；78 个测试文件、586 项通过、1 项跳过；313 项 pgTAP 数据库测试通过 |
+| 本地安装不需要邮箱登录 | 首次只设置一个本机访问密码，内部身份与默认工作空间自动创建；之后只输入密码解锁 | 全新隔离数据库完成“设置密码 → 找企业 → 锁定 → 密码再次进入”真实浏览器验收，控制台 0 错误 |
 | 主界面只保留“找企业 / 我的名单” | 顶部只显示两个主入口；其他能力统一进入“配置”抽屉 | 截图 `01`、`04`、`15` |
 | Agent/Skill 完成前置找企，用户进入 Web UI 管理 | Skill 收敛条件、说明调用量、提交任务并返回名单 ID/路由；Web UI 读取同一租户数据 | 两个 `SKILL.md` 与 `app-contract.md` |
 | 获客助手字段必须真实有效 | 地区、行业、资质目录及资本、参保、日期、企业类型、联系方式、风险等条件与 KC 合同对齐 | `kc-query-contract.md`；真实 10 家名单 |
@@ -16,7 +17,7 @@
 | 两个可安装 Skill | `enterprise-lead-workbench` 与 `enterprise-public-report` 独立安装、共用工作台 MCP | 两个测试 ZIP 均以根目录 `SKILL.md` 开始；找企业包含 5 个文件，报告包含 4 个文件与 `save_report.py`；压缩完整性和官方 `quick_validate.py` 校验均通过 |
 | Apple 风格但不照搬通用后台 | 深蓝导航、克制留白、柔和灰底、圆角卡片、清晰层级；参考图的名单密度与交互结构被保留 | 桌面/移动截图及 `reference-comparison.png` |
 | 所有可点击控件验收 | 控件按唯一交互类型逐项检查；破坏性操作在隔离环境验证取消和确认 | `design-qa/clickable-control-matrix.md` |
-| 商用风险可审计 | 上游 MIT 许可与运行依赖生成 CycloneDX SBOM 和第三方许可；根项目与文档生产依赖 0 漏洞 | `compliance/`、`THIRD_PARTY_NOTICES.md`；321 个组件、33 份生产 source map/服务端运行依赖复核通过 |
+| 商用风险可审计 | 上游 MIT 许可与运行依赖生成 CycloneDX SBOM 和第三方许可；根项目与文档生产依赖 0 漏洞 | `compliance/`、`THIRD_PARTY_NOTICES.md`；321 个组件、30 份生产 source map/服务端运行依赖复核通过 |
 
 ## 本轮真实链路验收
 
@@ -29,5 +30,7 @@
 - 企业报告：证据任务 `8dc53d0a-6526-44f7-97e6-5577355c98ed` 当前报告为第 2 版（报告 ID `71af40ec-efc4-445c-9d5e-8e2a78753047`），第 1 版保留为已替代记录；38 个用户可见文本字段及最终 HTML 的内部标记扫描结果均为 0，引用锚点使用 `source-1` 这类普通序号。
 - MCP：WorkBuddy 完成 OAuth 重连后显示 20/20 工具可用；Agent 实际调用工作空间、数据源、企查查任务和轮询链路成功。
 - 测试 Skill ZIP 由 `npm run build:test-skills` 可重复生成；构建会校验所有必需引用文件，避免再次产出“能识别但运行时缺文件”的不完整压缩包。
+- 本地单用户模式已取消邮箱、注册和工作空间初始化表单；多用户部署模式仍保留原子首管理员初始化，并通过独立 Playwright 流程验证。
+- Provider Worker 对启动窗口的短暂连接失败会自动退避重试，不再导致页面正常但后台任务执行器已退出。
 
 生产边界：供应商账号额度、企查查具体套餐权限、获客助手服务可用性以及 Ego Lite 能否访问某个公开站点属于外部状态；系统会把未授权、站点限制、验证码和部分覆盖显式记录，不会把“未取得”写成“不存在”。

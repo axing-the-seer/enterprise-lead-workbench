@@ -47,12 +47,11 @@ import { exportCompanies } from "./listExport";
 import type {
   Company,
   CompanyList,
+  CompanyListEntry,
   CompanyListMember,
-  CompanyReport,
   IngestionJob,
   SourceConnection,
   SourceQuery,
-  SourceSnapshot,
 } from "./types";
 import {
   displayCompanyRegion,
@@ -64,6 +63,7 @@ import {
 import { formatDateTime, getErrorMessage } from "./utils";
 import { useWorkspace } from "./workspace";
 import { createIdempotencyKey, runWorkbenchAction } from "./workbenchActions";
+import { useAllRecords } from "./useAllRecords";
 
 const PAGE_SIZE = 20;
 
@@ -76,15 +76,11 @@ export function ListDetailPage() {
     { id: listId },
     { enabled: Boolean(listId) },
   );
-  const members = useGetList<CompanyListMember>("company_list_members", {
-    pagination: { page: 1, perPage: 5000 },
-    sort: { field: "added_at", order: "DESC" },
+  const entries = useAllRecords<CompanyListEntry>("company_list_entries", {
     filter: { workspace_id: workspace?.id, company_list_id: listId },
-  });
-  const companies = useGetList<Company>("companies", {
-    pagination: { page: 1, perPage: 5000 },
-    sort: { field: "updated_at", order: "DESC" },
-    filter: { workspace_id: workspace?.id },
+    sort: { field: "id", order: "ASC" },
+    maxRecords: 20_000,
+    enabled: Boolean(workspace?.id && listId),
   });
   const sources = useGetList<SourceConnection>("source_connections_safe", {
     pagination: { page: 1, perPage: 100 },
@@ -107,21 +103,11 @@ export function ListDetailPage() {
           : false,
     },
   );
-  const agentReports = useGetList<CompanyReport>("company_reports", {
-    pagination: { page: 1, perPage: 1000 },
-    sort: { field: "submitted_at", order: "DESC" },
-    filter: { workspace_id: workspace?.id, is_current: true },
-  });
-  const queries = useGetList<SourceQuery>("source_queries", {
-    pagination: { page: 1, perPage: 500 },
-    sort: { field: "created_at", order: "DESC" },
-    filter: { workspace_id: workspace?.id },
-  });
-  const snapshots = useGetList<SourceSnapshot>("source_snapshots", {
-    pagination: { page: 1, perPage: 5000 },
-    sort: { field: "captured_at", order: "DESC" },
-    filter: { workspace_id: workspace?.id },
-  });
+  const query = useGetOne<SourceQuery>(
+    "source_queries",
+    { id: list.data?.source_query_id ?? "" },
+    { enabled: Boolean(list.data?.source_query_id) },
+  );
   const [updateMember] = useUpdate<CompanyListMember>();
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState("all");
@@ -155,41 +141,22 @@ export function ListDetailPage() {
     )
       return;
     refreshedJobSignature.current = completedJobSignature;
-    void Promise.all([companies.refetch(), snapshots.refetch()]);
-  }, [completedJobSignature, companies, snapshots]);
+    void entries.refetch();
+  }, [completedJobSignature, entries]);
 
   const memberMap = useMemo(
     () =>
       new Map(
-        (members.data ?? []).map((member) => [
-          String(member.company_id),
-          member,
+        (entries.data ?? []).map((entry) => [
+          String(entry.company_id),
+          entryToMember(entry),
         ]),
       ),
-    [members.data],
+    [entries.data],
   );
-  const snapshotsByCompany = useMemo(() => {
-    const map = new Map<string, SourceSnapshot[]>();
-    for (const snapshot of snapshots.data ?? []) {
-      if (snapshot.company_id != null) {
-        const key = String(snapshot.company_id);
-        map.set(key, [...(map.get(key) ?? []), snapshot]);
-      }
-    }
-    return map;
-  }, [snapshots.data]);
   const listCompanies = useMemo(
-    () =>
-      (companies.data ?? [])
-        .filter((company) => memberMap.has(String(company.id)))
-        .map((company) =>
-          (snapshotsByCompany.get(String(company.id)) ?? []).reduce(
-            (enriched, snapshot) =>
-              enrichCompanyFromSnapshot(enriched, snapshot),
-            company,
-          ),
-        ),
-    [companies.data, memberMap, snapshotsByCompany],
+    () => (entries.data ?? []).map(entryToCompany),
+    [entries.data],
   );
   const reportsByCompany = useMemo(() => {
     const map = new Map<string, IngestionJob>();
@@ -199,16 +166,15 @@ export function ListDetailPage() {
     }
     return map;
   }, [jobs.data]);
-  const completedReportsByCompany = useMemo(
-    () =>
-      new Map(
-        (agentReports.data ?? []).map((report) => [
-          String(report.company_id),
-          report,
-        ]),
-      ),
-    [agentReports.data],
-  );
+  const completedReportsByCompany = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const entry of entries.data ?? []) {
+      if (entry.current_report_id) {
+        map.set(String(entry.company_id), entry.current_report_id);
+      }
+    }
+    return map;
+  }, [entries.data]);
   const activeListCompanies = useMemo(
     () =>
       listCompanies.filter(
@@ -259,10 +225,7 @@ export function ListDetailPage() {
   ]);
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const visible = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
-  const query = (queries.data ?? []).find(
-    (item) => item.id === list.data?.source_query_id,
-  );
-  const chips = queryCriteriaChips(query?.criteria);
+  const chips = queryCriteriaChips(query.data?.criteria);
   const qcc = (sources.data ?? []).find(
     (source) =>
       source.provider === "qcc" &&
@@ -344,7 +307,7 @@ export function ListDetailPage() {
   };
 
   const excludeSelected = async () => {
-    const targets = (members.data ?? []).filter((member) =>
+    const targets = [...memberMap.values()].filter((member) =>
       selected.has(String(member.company_id)),
     );
     if (!targets.length) return;
@@ -362,7 +325,7 @@ export function ListDetailPage() {
       }
       setSelected(new Set());
       setExcludeOpen(false);
-      await members.refetch();
+      await entries.refetch();
       notify(`已从当前名单移出 ${targets.length} 家，原始企业主档仍保留。`, {
         type: "success",
       });
@@ -371,12 +334,14 @@ export function ListDetailPage() {
     }
   };
 
-  if (list.error) {
+  if (list.error || entries.error) {
     return (
       <Alert variant="destructive">
         <WarningCircle />
         <AlertTitle>无法打开名单</AlertTitle>
-        <AlertDescription>{getErrorMessage(list.error)}</AlertDescription>
+        <AlertDescription>
+          {getErrorMessage(list.error || entries.error)}
+        </AlertDescription>
       </Alert>
     );
   }
@@ -655,7 +620,7 @@ export function ListDetailPage() {
                           ["completed", "partial"].includes(report.status) ? (
                           <>
                             <FileHtml />
-                            等待 Agent
+                            待智能分析
                           </>
                         ) : (
                           <>
@@ -854,6 +819,34 @@ function reportCompanyId(job: IngestionJob) {
     return String(result.company_id);
   }
   return null;
+}
+
+function entryToMember(entry: CompanyListEntry): CompanyListMember {
+  return {
+    id: entry.member_id,
+    workspace_id: entry.workspace_id,
+    company_list_id: entry.company_list_id,
+    company_id: entry.company_id,
+    source_record_id: entry.source_record_id,
+    membership_status: entry.membership_status,
+    added_at: entry.added_at,
+    updated_at: entry.membership_updated_at ?? undefined,
+  };
+}
+
+function entryToCompany(entry: CompanyListEntry): Company {
+  const company: Company = {
+    ...entry,
+    id: String(entry.company_id),
+  };
+  return enrichCompanyFromSnapshot(company, {
+    id: `latest-${entry.company_id}`,
+    workspace_id: entry.workspace_id,
+    source_record_id: entry.source_record_id ?? "",
+    canonical_schema_version: "1.0",
+    normalized_payload: entry.latest_normalized_payload ?? {},
+    match_status: "matched",
+  });
 }
 
 function friendlyExportError(error: unknown) {

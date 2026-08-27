@@ -20,6 +20,7 @@ import type { ConfigurationContextValue } from "../../root/ConfigurationContext"
 import { ATTACHMENTS_BUCKET } from "../commons/attachments";
 import { getIsInitialized } from "./authProvider";
 import { getSupabaseClient } from "./supabase";
+import { localSingleUserMode } from "../../login/authConfig";
 
 const getBaseDataProvider = () =>
   supabaseDataProvider({
@@ -99,14 +100,16 @@ const getDataProviderWithCustomMethods = () => {
         data: { id: string; email: string };
       }>("bootstrap-admin", {
         method: "POST",
-        body: {
-          action: "create",
-          bootstrapToken: bootstrap_token,
-          email,
-          password,
-          firstName: first_name,
-          lastName: last_name,
-        },
+        body: localSingleUserMode
+          ? { action: "create-local", password }
+          : {
+              action: "create",
+              bootstrapToken: bootstrap_token,
+              email,
+              password,
+              firstName: first_name,
+              lastName: last_name,
+            },
       });
 
       if (!data?.data || error) {

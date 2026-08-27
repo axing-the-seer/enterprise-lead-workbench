@@ -106,6 +106,7 @@ function exportJob(
       export_format: format,
       selected_fields: selectedFields,
       requested_by: "33333333-3333-4333-8333-333333333333",
+      attempt_count: 1,
     },
   };
 }
@@ -176,6 +177,19 @@ describe("ExcelJS 安全升级回归", () => {
         },
       ],
     });
+  });
+
+  it("CSV 重复列名被自动改名后仍会提示用户复核", async () => {
+    const imported = await parseImportFile(
+      new TextEncoder().encode("企业名称,企业名称\n虚构测试主体-A,别名-A\n"),
+      "duplicate-headers.csv",
+      "text/csv",
+    );
+
+    expect(imported.rows).toEqual([
+      { 企业名称: "虚构测试主体-A", 企业名称_1: "别名-A" },
+    ]);
+    expect(imported.warnings).toEqual(["检测到重复列名；请在字段映射前复核。"]);
   });
 
   it("导出的 XLSX 可被 ExcelJS 重新读取", async () => {

@@ -2,10 +2,14 @@ import {
   BootstrapInputError,
   constantTimeTokenEqual,
   isBootstrapTokenConfigured,
+  isLocalBootstrapRequestAllowed,
+  isLocalSingleUserModeEnabled,
+  LOCAL_SINGLE_USER_EMAIL,
   MAX_ADMIN_PASSWORD_LENGTH,
   MIN_ADMIN_PASSWORD_LENGTH,
   MIN_BOOTSTRAP_TOKEN_BYTES,
   parseBootstrapAdminInput,
+  parseLocalBootstrapAdminInput,
 } from "./contracts.ts";
 
 function assert(condition: unknown, message: string): asserts condition {
@@ -106,6 +110,83 @@ Deno.test("bootstrap input rejects malformed email and unknown action", () => {
     "INVALID_INPUT",
   );
 });
+
+Deno.test(
+  "local single-user input derives the hidden administrator identity",
+  () => {
+    const input = parseLocalBootstrapAdminInput(
+      {
+        action: "create-local",
+        password: "p".repeat(MIN_ADMIN_PASSWORD_LENGTH),
+      },
+      validToken,
+    );
+
+    assert(
+      input.email === LOCAL_SINGLE_USER_EMAIL,
+      "local email must be fixed",
+    );
+    assert(input.firstName === "本机", "local first name must be derived");
+    assert(input.lastName === "管理员", "local last name must be derived");
+    assert(
+      input.bootstrapToken === validToken,
+      "server token must be injected",
+    );
+  },
+);
+
+Deno.test("local single-user mode is restricted to loopback Supabase", () => {
+  assert(
+    isLocalSingleUserModeEnabled("true", "http://127.0.0.1:54321"),
+    "IPv4 loopback should be allowed",
+  );
+  assert(
+    isLocalSingleUserModeEnabled("true", "http://localhost:54321"),
+    "localhost should be allowed",
+  );
+  assert(
+    !isLocalSingleUserModeEnabled("true", "https://project.supabase.co"),
+    "hosted Supabase must fail closed",
+  );
+  assert(
+    !isLocalSingleUserModeEnabled("false", "http://127.0.0.1:54321"),
+    "explicit opt-in is required",
+  );
+});
+
+Deno.test(
+  "local password initialization accepts only loopback browser origins",
+  () => {
+    for (const origin of [
+      "http://127.0.0.1:3101",
+      "http://localhost:5175",
+      "https://[::1]:3101",
+    ]) {
+      assert(
+        isLocalBootstrapRequestAllowed(origin, "same-site"),
+        `loopback origin should be allowed: ${origin}`,
+      );
+    }
+    for (const origin of [
+      "https://attacker.example",
+      "http://127.0.0.1.attacker.example",
+      "null",
+    ]) {
+      assert(
+        !isLocalBootstrapRequestAllowed(origin, "cross-site"),
+        `non-loopback origin must be rejected: ${origin}`,
+      );
+    }
+    assert(
+      isLocalBootstrapRequestAllowed(null, null),
+      "native local callers without browser metadata should remain supported",
+    );
+    assert(
+      !isLocalBootstrapRequestAllowed(null, "cross-site"),
+      "browser requests without an Origin must fail closed",
+    );
+  },
+);
 
 Deno.test(
   "token comparison accepts only the exact configured value",

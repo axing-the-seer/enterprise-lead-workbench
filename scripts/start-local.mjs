@@ -9,6 +9,10 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { withLocalProviderSecrets } from "./local-provider-env.mjs";
+import {
+  resolveLocalBootstrapToken,
+  resolveLocalSingleUserEmail,
+} from "./local-single-user.mjs";
 
 function runQuietly(command, args, env) {
   try {
@@ -46,19 +50,6 @@ function parseEnv(output) {
   return values;
 }
 
-function requireBootstrapToken(value) {
-  if (
-    typeof value !== "string" ||
-    Buffer.byteLength(value, "utf8") < 24 ||
-    /[\r\n\0]/.test(value)
-  ) {
-    throw new Error(
-      "请先设置至少 24 字节且不含换行的 WORKBENCH_BOOTSTRAP_TOKEN。",
-    );
-  }
-  return value;
-}
-
 function createEdgeEnvFile(bootstrapToken, publishableKey, apiUrl) {
   const directory = mkdtempSync(
     join(tmpdir(), "enterprise-lead-workbench-edge-"),
@@ -70,7 +61,7 @@ function createEdgeEnvFile(bootstrapToken, publishableKey, apiUrl) {
     .replaceAll('"', '\\"');
   writeFileSync(
     path,
-    `WORKBENCH_BOOTSTRAP_TOKEN="${escapedToken}"\nWORKBENCH_PUBLIC_ORIGIN="${apiUrl}"\nSB_PUBLISHABLE_KEY="${publishableKey}"\nSB_JWT_ISSUER="${apiUrl}/auth/v1"\n`,
+    `WORKBENCH_BOOTSTRAP_TOKEN="${escapedToken}"\nWORKBENCH_LOCAL_SINGLE_USER="true"\nWORKBENCH_PUBLIC_ORIGIN="${apiUrl}"\nSB_PUBLISHABLE_KEY="${publishableKey}"\nSB_JWT_ISSUER="${apiUrl}/auth/v1"\n`,
     {
       encoding: "utf8",
       flag: "wx",
@@ -100,7 +91,7 @@ function createEdgeEnvFile(bootstrapToken, publishableKey, apiUrl) {
 
 const { WORKBENCH_BOOTSTRAP_TOKEN: rawBootstrapToken, ...runtimeEnv } =
   process.env;
-const bootstrapToken = requireBootstrapToken(rawBootstrapToken);
+const bootstrapToken = resolveLocalBootstrapToken(rawBootstrapToken);
 
 process.stdout.write("正在确认本地数据库与应用服务…\n");
 runQuietly("npx", ["supabase", "start"], runtimeEnv);
@@ -116,6 +107,10 @@ const edgeEnvFile = createEdgeEnvFile(
   local.API_URL,
 );
 process.once("exit", edgeEnvFile.cleanup);
+const localSingleUserEmail = await resolveLocalSingleUserEmail(
+  local.API_URL,
+  local.SERVICE_ROLE_KEY,
+);
 
 const sharedEnv = {
   ...withLocalProviderSecrets(runtimeEnv),
@@ -123,6 +118,8 @@ const sharedEnv = {
   SUPABASE_SERVICE_ROLE_KEY: local.SERVICE_ROLE_KEY,
   VITE_SUPABASE_URL: local.API_URL,
   VITE_SB_PUBLISHABLE_KEY: local.PUBLISHABLE_KEY,
+  VITE_LOCAL_SINGLE_USER: "true",
+  VITE_LOCAL_SINGLE_USER_EMAIL: localSingleUserEmail,
 };
 
 const edge = spawn(

@@ -63,26 +63,15 @@ import { createIdempotencyKey, runWorkbenchAction } from "./workbenchActions";
 import { displayFact, factLabels, providerLabel } from "./factPresentation";
 import { operatingStatusLabel } from "./companyPresentation";
 import {
-  buildWebEvidenceCriteria,
-  buildWebEvidenceJobPayload,
+  buildPublicReportCriteria,
+  buildPublicReportJobPayload,
   isReadyWebEvidenceSource,
-  type WebEvidenceClaimType,
 } from "./webEvidence";
 
 const decisionLabels: Record<string, string> = {
   include: "入选",
   exclude: "排除",
   needs_review: "待核验",
-};
-
-const webEvidenceClaimLabels: Record<WebEvidenceClaimType, string> = {
-  official_website: "官方网站",
-  product: "产品与服务",
-  award: "资质与奖项",
-  tender: "招投标",
-  recruiting: "招聘动态",
-  news: "新闻报道",
-  other: "其他证据",
 };
 
 export function EnterpriseReviewPage() {
@@ -370,7 +359,7 @@ function CompanyEvidenceDialog({
   const [reviewDecision, setReviewDecision] = useState("needs_information");
   const [note, setNote] = useState("");
   const [isSaving, setIsSaving] = useState(false);
-  const [webEvidenceOpen, setWebEvidenceOpen] = useState(false);
+  const [publicReportOpen, setPublicReportOpen] = useState(false);
   const currentReview = reviews.data?.[0];
 
   const saveReview = async () => {
@@ -409,7 +398,7 @@ function CompanyEvidenceDialog({
       <Dialog
         open={enabled}
         onOpenChange={(open) => {
-          if (!open) setWebEvidenceOpen(false);
+          if (!open) setPublicReportOpen(false);
           onOpenChange(open);
         }}
       >
@@ -474,10 +463,10 @@ function CompanyEvidenceDialog({
                   type="button"
                   size="sm"
                   variant="outline"
-                  onClick={() => setWebEvidenceOpen(true)}
+                  onClick={() => setPublicReportOpen(true)}
                 >
                   <Globe2 />
-                  补充 Web 证据
+                  采集报告资料
                 </Button>
               </div>
               <DataBoundary
@@ -595,9 +584,9 @@ function CompanyEvidenceDialog({
           </DialogFooter>
         </DialogContent>
       </Dialog>
-      <WebEvidenceDialog
-        open={enabled && webEvidenceOpen}
-        onOpenChange={setWebEvidenceOpen}
+      <PublicReportCollectionDialog
+        open={enabled && publicReportOpen}
+        onOpenChange={setPublicReportOpen}
         workspaceId={workspaceId}
         companyId={result?.company_id ?? null}
         companyName={company?.name}
@@ -606,7 +595,7 @@ function CompanyEvidenceDialog({
   );
 }
 
-export function WebEvidenceDialog({
+export function PublicReportCollectionDialog({
   open,
   onOpenChange,
   workspaceId,
@@ -634,11 +623,7 @@ export function WebEvidenceDialog({
     [sources.data],
   );
   const [sourceId, setSourceId] = useState("");
-  const [claimType, setClaimType] =
-    useState<WebEvidenceClaimType>("official_website");
-  const [extraKeywordsText, setExtraKeywordsText] = useState("");
-  const [site, setSite] = useState("");
-  const [maxResults, setMaxResults] = useState("5");
+  const [maxResults, setMaxResults] = useState("6");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [receipt, setReceipt] = useState<WorkbenchJobResponse | null>(null);
   const idempotencyKeyRef = useRef<string | null>(null);
@@ -652,10 +637,7 @@ export function WebEvidenceDialog({
   useEffect(() => {
     if (!open) {
       setSourceId("");
-      setClaimType("official_website");
-      setExtraKeywordsText("");
-      setSite("");
-      setMaxResults("5");
+      setMaxResults("6");
       setReceipt(null);
       idempotencyKeyRef.current = null;
     }
@@ -663,13 +645,13 @@ export function WebEvidenceDialog({
 
   const submit = async () => {
     if (companyId === null) {
-      notify("缺少已入库企业标识，不能发起 Web 证据检索。", {
+      notify("缺少已入库企业标识，不能采集报告资料。", {
         type: "error",
       });
       return;
     }
     if (!selectedSource) {
-      notify("请选择状态为 ready 或 degraded 的 Web 证据数据源。", {
+      notify("请先在配置中检查 Ego Lite 资料源。", {
         type: "warning",
       });
       return;
@@ -677,11 +659,8 @@ export function WebEvidenceDialog({
 
     let criteria;
     try {
-      criteria = buildWebEvidenceCriteria({
+      criteria = buildPublicReportCriteria({
         companyId,
-        claimType,
-        extraKeywordsText,
-        site,
         maxResults: Number(maxResults),
       });
     } catch (error) {
@@ -693,16 +672,16 @@ export function WebEvidenceDialog({
     setReceipt(null);
     try {
       const idempotencyKey =
-        idempotencyKeyRef.current ?? createIdempotencyKey("web-evidence");
+        idempotencyKeyRef.current ?? createIdempotencyKey("ego-report");
       idempotencyKeyRef.current = idempotencyKey;
       const job = await runWorkbenchAction(
         "start_ingestion",
         workspaceId,
-        buildWebEvidenceJobPayload(selectedSource.id, criteria),
+        buildPublicReportJobPayload(selectedSource.id, criteria),
         idempotencyKey,
       );
       setReceipt(job);
-      notify(`Web 证据任务已提交（${job.status}）`, {
+      notify(`报告资料采集已提交（${job.status}）`, {
         type: "success",
       });
     } catch (error) {
@@ -716,26 +695,27 @@ export function WebEvidenceDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
         <DialogHeader>
-          <DialogTitle>补充 Web 证据</DialogTitle>
+          <DialogTitle>采集企业报告资料</DialogTitle>
           <DialogDescription>
-            本次检索只补充到已入库企业“
+            Ego Lite 将为已入库企业“
             {companyName ?? `ID ${companyId ?? "缺失"}`}
-            ”，不会从网页创建新企业。
+            ”采集官网、招聘和公开新闻，不会从网页创建新企业。
           </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-5 py-2">
-          <Alert className="border-amber-200 bg-amber-50/60 dark:border-amber-900 dark:bg-amber-950/30">
-            <AlertTriangle />
-            <AlertTitle>提交后将消耗腾讯云 WSA 搜索额度</AlertTitle>
+          <Alert>
+            <Globe2 />
+            <AlertTitle>资料采集不使用模型 Token</AlertTitle>
             <AlertDescription>
-              数据源页的“检查配置”不搜索、不计费；只有此处提交真实检索才会消耗额度。
+              这一步只由本机 Ego Lite 打开公开页面并保存可追溯资料。后续如果让
+              WorkBuddy 或其他智能助手形成判断，才会使用对应平台的模型能力。
             </AlertDescription>
           </Alert>
 
           {sources.error ? (
             <Alert variant="destructive">
-              <AlertTitle>无法读取 Web 证据数据源</AlertTitle>
+              <AlertTitle>无法读取 Ego Lite 资料源</AlertTitle>
               <AlertDescription>
                 {getErrorMessage(sources.error)}
               </AlertDescription>
@@ -743,7 +723,7 @@ export function WebEvidenceDialog({
           ) : null}
 
           <div className="space-y-2">
-            <Label htmlFor="web-evidence-source">Web 证据数据源</Label>
+            <Label htmlFor="web-evidence-source">Ego Lite 资料源</Label>
             <Select
               value={sourceId}
               onValueChange={(value) => {
@@ -762,116 +742,65 @@ export function WebEvidenceDialog({
               <SelectContent>
                 {readySources.map((source) => (
                   <SelectItem key={source.id} value={source.id}>
-                    {source.name}（{source.status}）
+                    {source.name}（
+                    {source.status === "ready" ? "已就绪" : "待首次采集验证"}）
                   </SelectItem>
                 ))}
               </SelectContent>
             </Select>
             <p className="text-xs text-muted-foreground">
-              只列出 provider=web_search 且状态为 ready 或 degraded 的连接。
+              仅使用已通过本机运行环境检查的资料源。
             </p>
           </div>
 
           {!sources.isPending && !sources.error && readySources.length === 0 ? (
             <Alert>
-              <AlertTitle>没有可用的 Web 证据连接</AlertTitle>
+              <AlertTitle>Ego Lite 尚未就绪</AlertTitle>
               <AlertDescription>
-                请先到“数据源”开启服务器腾讯云 WSA
-                凭证引用，然后执行“检查配置”。
+                请打开右上角“配置”，对“Ego Lite 公开信息报告”执行“检查配置”。
               </AlertDescription>
             </Alert>
           ) : null}
 
           {selectedSource?.status === "degraded" ? (
             <Alert>
-              <AlertTitle>当前连接为 degraded</AlertTitle>
+              <AlertTitle>将进行首次真实采集</AlertTitle>
               <AlertDescription>
-                本次真实检索会同时验证远程授权，仍会消耗搜索额度。
+                本机环境已登记，但还没有用企业任务验证。完成后系统会自动更新状态。
               </AlertDescription>
             </Alert>
           ) : null}
 
-          <div className="grid gap-4 sm:grid-cols-2">
-            <div className="space-y-2">
-              <Label>证据类型</Label>
-              <Select
-                value={claimType}
-                onValueChange={(value) => {
-                  setClaimType(value as WebEvidenceClaimType);
-                  resetSubmission();
-                }}
-              >
-                <SelectTrigger className="w-full" aria-label="证据类型">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {Object.entries(webEvidenceClaimLabels).map(
-                    ([value, label]) => (
-                      <SelectItem key={value} value={value}>
-                        {label}
-                      </SelectItem>
-                    ),
-                  )}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-2">
-              <Label>结果数</Label>
-              <Select
-                value={maxResults}
-                onValueChange={(value) => {
-                  setMaxResults(value);
-                  resetSubmission();
-                }}
-              >
-                <SelectTrigger className="w-full" aria-label="证据结果数">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {Array.from({ length: 10 }, (_, index) => index + 1).map(
-                    (count) => (
-                      <SelectItem key={count} value={String(count)}>
-                        {count} 条
-                      </SelectItem>
-                    ),
-                  )}
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-
           <div className="space-y-2">
-            <Label htmlFor="web-evidence-keywords">额外关键词（可选）</Label>
-            <Textarea
-              id="web-evidence-keywords"
-              value={extraKeywordsText}
-              onChange={(event) => {
-                setExtraKeywordsText(event.target.value);
+            <Label>每类资料上限</Label>
+            <Select
+              value={maxResults}
+              onValueChange={(value) => {
+                setMaxResults(value);
                 resetSubmission();
               }}
-              placeholder="多个关键词可用逗号或换行分隔"
-              rows={2}
-            />
-          </div>
-
-          <div className="space-y-2">
-            <Label htmlFor="web-evidence-site">限定站点（可选）</Label>
-            <Input
-              id="web-evidence-site"
-              value={site}
-              onChange={(event) => {
-                setSite(event.target.value);
-                resetSubmission();
-              }}
-              placeholder="例如官网域名"
-            />
+            >
+              <SelectTrigger className="w-full" aria-label="每类报告资料上限">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {[4, 6, 8].map((count) => (
+                  <SelectItem key={count} value={String(count)}>
+                    {count} 条
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-muted-foreground">
+              官网、招聘、公开新闻各最多保留这个数量；默认 6 条通常足够。
+            </p>
           </div>
 
           {receipt ? (
             <Alert>
-              <AlertTitle>Web 证据任务：{receipt.status}</AlertTitle>
+              <AlertTitle>资料采集已开始</AlertTitle>
               <AlertDescription>
-                任务 ID：{receipt.jobId}。完成后证据会按已有企业 ID 归档。
+                任务将在后台继续。完成后资料会归档到该企业，可在“我的名单”中进入企业详情查看。
               </AlertDescription>
             </Alert>
           ) : null}
@@ -891,7 +820,7 @@ export function WebEvidenceDialog({
             }
           >
             {isSubmitting ? <Loader2 className="animate-spin" /> : <Globe2 />}
-            确认消耗额度并提交
+            开始采集
           </Button>
         </DialogFooter>
       </DialogContent>

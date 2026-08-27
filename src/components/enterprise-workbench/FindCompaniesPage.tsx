@@ -5,6 +5,7 @@ import {
   CheckCircle,
   ClockCountdown,
   Coins,
+  FileArrowUp,
   Info,
   MagnifyingGlass,
   MapPin,
@@ -37,6 +38,8 @@ import {
 import { Switch } from "@/components/ui/switch";
 import type {
   IngestionJob,
+  FieldMappingSet,
+  FieldMappingVersion,
   SourceConnection,
   WorkbenchJobResponse,
 } from "./types";
@@ -44,6 +47,7 @@ import { getErrorMessage } from "./utils";
 import { KcCatalogPicker, type KcCatalogSelection } from "./KcCatalogPicker";
 import { useWorkspace } from "./workspace";
 import { createIdempotencyKey, runWorkbenchAction } from "./workbenchActions";
+import { FileUploadDialog } from "./BatchesPage";
 
 const qualifications = [
   "小微企业",
@@ -111,6 +115,7 @@ export function FindCompaniesPage() {
   const navigate = useNavigate();
   const [form, setForm] = useState<FormState>(initialState);
   const [confirmOpen, setConfirmOpen] = useState(false);
+  const [uploadOpen, setUploadOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [submittedJobs, setSubmittedJobs] = useState<WorkbenchJobResponse[]>(
     [],
@@ -122,6 +127,19 @@ export function FindCompaniesPage() {
     sort: { field: "name", order: "ASC" },
     filter: { workspace_id: workspace?.id },
   });
+  const mappingSets = useGetList<FieldMappingSet>("field_mapping_sets", {
+    pagination: { page: 1, perPage: 100 },
+    sort: { field: "updated_at", order: "DESC" },
+    filter: { workspace_id: workspace?.id, provider: "file_upload" },
+  });
+  const mappingVersions = useGetList<FieldMappingVersion>(
+    "field_mapping_versions",
+    {
+      pagination: { page: 1, perPage: 500 },
+      sort: { field: "created_at", order: "DESC" },
+      filter: { workspace_id: workspace?.id, status: "published" },
+    },
+  );
   const jobIds = useMemo(
     () => new Set(submittedJobs.map((job) => job.jobId)),
     [submittedJobs],
@@ -191,7 +209,15 @@ export function FindCompaniesPage() {
         },
       );
       navigate(`/lists/${listId}`);
+      return;
     }
+    notify(
+      failed.length
+        ? "本次未生成名单，请核对数据源状态和筛选条件后重试。"
+        : "本次没有可入库的企业，请放宽筛选条件后重试。",
+      { type: "warning" },
+    );
+    setSubmittedJobs([]);
   }, [completed, failed, navigate, notify, submittedJobs.length]);
 
   const update = <K extends keyof FormState>(key: K, value: FormState[K]) =>
@@ -270,19 +296,30 @@ export function FindCompaniesPage() {
 
   return (
     <div className="mx-auto max-w-[1240px] space-y-7">
-      <header className="space-y-3">
-        <Badge
+      <header className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+        <div className="space-y-3">
+          <Badge
+            variant="outline"
+            className="rounded-full bg-white px-3 py-1 text-slate-600"
+          >
+            <Buildings className="mr-1 size-3.5" /> 金蝶征信有限公司数据支撑
+          </Badge>
+          <h1 className="text-3xl font-semibold tracking-[-0.035em] text-[#1d1d1f] sm:text-[40px]">
+            找企业
+          </h1>
+          <p className="max-w-3xl text-[15px] leading-7 text-slate-500">
+            按地区、行业和经营条件筛选企业。也可以导入已有名单统一管理。
+          </p>
+        </div>
+        <Button
           variant="outline"
-          className="rounded-full bg-white px-3 py-1 text-slate-600"
+          className="h-11 rounded-full bg-white px-5"
+          onClick={() => setUploadOpen(true)}
+          disabled={submitting || submittedJobs.length > 0}
         >
-          <Buildings className="mr-1 size-3.5" /> 金蝶征信有限公司数据支撑
-        </Badge>
-        <h1 className="text-3xl font-semibold tracking-[-0.035em] text-[#1d1d1f] sm:text-[40px]">
-          找企业
-        </h1>
-        <p className="max-w-3xl text-[15px] leading-7 text-slate-500">
-          按地区、行业和经营条件筛选企业。提交前会显示预计查询次数。
-        </p>
+          <FileArrowUp />
+          导入已有名单
+        </Button>
       </header>
 
       <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_300px]">
@@ -583,6 +620,20 @@ export function FindCompaniesPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      <FileUploadDialog
+        open={uploadOpen}
+        onOpenChange={setUploadOpen}
+        workspaceId={workspace!.id}
+        sources={sources.data ?? []}
+        sourcesError={sources.error}
+        mappingSets={mappingSets.data ?? []}
+        mappingVersions={mappingVersions.data ?? []}
+        mappingsError={mappingSets.error || mappingVersions.error}
+        onSubmitted={(receipt) => {
+          hasNavigated.current = false;
+          setSubmittedJobs([receipt]);
+        }}
+      />
     </div>
   );
 }

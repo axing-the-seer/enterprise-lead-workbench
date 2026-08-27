@@ -21,7 +21,7 @@ Domain MCP ────────┘          │
           Kingdee Credit ─────────────┤
           Qichacha ───────────────────┤
           CSV / XLSX / JSON ──────────┤
-          Web evidence ───────────────┘
+          Ego Lite evidence ────────────┘
 ```
 
 ## Application boundaries
@@ -49,9 +49,9 @@ The first-party adapter invokes only capabilities enabled on the user's connecti
 
 CSV, XLSX, and JSON imports use a versioned field map. Users preview the parsed headers, identity coverage, invalid values, and representative rows before committing an ingestion job. Import retries use an idempotency key and do not create duplicate batches.
 
-### Web evidence
+### Ego Lite public evidence
 
-Web Search is an enrichment provider, not an authoritative enterprise registry. Evidence stores URL, title, publication or observation time, retrieval time, claim, and related company. It cannot silently overwrite an official provider fact.
+Ego Lite is a local evidence collector, not an authoritative enterprise registry and not a model. It stores traceable URLs, titles, search snippets, retrieval time, relevance, and the related company. Collection does not use model tokens and cannot silently overwrite an official provider fact. A separate, explicitly requested Agent step may interpret the evidence package and submit a structured report.
 
 ## Rule lifecycle
 

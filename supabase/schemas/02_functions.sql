@@ -108,6 +108,11 @@ declare
   cited_evidence_ids text[];
   next_revision integer;
   inserted_report public.company_reports%rowtype;
+  section_name text;
+  section_limit integer;
+  section_item jsonb;
+  customer_text text;
+  internal_token_pattern constant text := '(ev-[0-9]{3}|USCC|broad_context|related_entity|exact_company|paid_in(_capital|_capital_amount)?|paidInCapital|insuredCount|company_detail|tags\.risk|evidenceIds|\\[_*()\[\]{}#])';
 begin
   if auth.uid() is null or not private.can_write_workspace(p_workspace_id) then
     raise exception using errcode = '42501', message = 'workspace write access is required';
@@ -124,9 +129,83 @@ begin
   end if;
   if jsonb_typeof(p_analysis) is distinct from 'object'
      or p_analysis ->> 'schemaVersion' is distinct from 'company-agent-analysis.v1'
-     or octet_length(p_analysis::text) > 131072 then
+     or octet_length(p_analysis::text) > 12288 then
     raise exception using errcode = '22023', message = 'agent analysis payload is invalid';
   end if;
+
+  if jsonb_typeof(p_analysis -> 'executiveSummary') is distinct from 'string'
+     or length(btrim(p_analysis ->> 'executiveSummary')) not between 1 and 1200
+     or jsonb_typeof(p_analysis -> 'executiveEvidenceIds') is distinct from 'array'
+     or jsonb_array_length(p_analysis -> 'executiveEvidenceIds') not between 1 and 10
+     or exists (
+       select 1 from jsonb_array_elements(p_analysis -> 'executiveEvidenceIds') item
+       where jsonb_typeof(item) <> 'string' or item #>> '{}' !~ '^ev-[0-9]{3}$'
+     )
+     or jsonb_typeof(p_analysis -> 'limitations') is distinct from 'array'
+     or jsonb_array_length(p_analysis -> 'limitations') > 6
+     or exists (
+       select 1 from jsonb_array_elements(p_analysis -> 'limitations') item
+       where jsonb_typeof(item) <> 'string'
+          or length(btrim(item #>> '{}')) not between 1 and 400
+     )
+     or (
+       p_analysis ? 'title'
+       and (
+         jsonb_typeof(p_analysis -> 'title') <> 'string'
+         or length(btrim(p_analysis ->> 'title')) not between 1 and 160
+       )
+     ) then
+    raise exception using errcode = '22023', message = 'agent analysis structure is invalid';
+  end if;
+
+  for customer_text in
+    select value from (
+      select p_analysis ->> 'title' as value
+      union all select p_analysis ->> 'executiveSummary'
+      union all
+      select item #>> '{}' from jsonb_array_elements(p_analysis -> 'limitations') item
+    ) values_to_check
+    where value is not null
+  loop
+    if length(btrim(customer_text)) = 0
+       or length(customer_text) > 1200
+       or translate(customer_text, E'\t\n\r', '') ~ '[[:cntrl:]]'
+       or customer_text ~* internal_token_pattern then
+      raise exception using errcode = '22023', message = 'customer-facing report text is invalid';
+    end if;
+  end loop;
+
+  foreach section_name in array array[
+    'businessProfile', 'growthSignals', 'recentEvents', 'opportunities',
+    'risks', 'recommendedActions'
+  ]
+  loop
+    section_limit := case when section_name = 'recentEvents' then 8 else 6 end;
+    if jsonb_typeof(p_analysis -> section_name) is distinct from 'array'
+       or jsonb_array_length(p_analysis -> section_name) > section_limit then
+      raise exception using errcode = '22023', message = 'agent analysis structure is invalid';
+    end if;
+    for section_item in
+      select value from jsonb_array_elements(p_analysis -> section_name)
+    loop
+      if jsonb_typeof(section_item) <> 'object'
+         or jsonb_typeof(section_item -> 'title') is distinct from 'string'
+         or length(btrim(section_item ->> 'title')) not between 1 and 120
+         or jsonb_typeof(section_item -> 'summary') is distinct from 'string'
+         or length(btrim(section_item ->> 'summary')) not between 1 and 800
+         or section_item ->> 'confidence' not in ('high', 'medium', 'low')
+         or jsonb_typeof(section_item -> 'evidenceIds') is distinct from 'array'
+         or jsonb_array_length(section_item -> 'evidenceIds') not between 1 and 10
+         or exists (
+           select 1 from jsonb_array_elements(section_item -> 'evidenceIds') item
+           where jsonb_typeof(item) <> 'string' or item #>> '{}' !~ '^ev-[0-9]{3}$'
+         )
+         or section_item ->> 'title' ~* internal_token_pattern
+         or section_item ->> 'summary' ~* internal_token_pattern then
+        raise exception using errcode = '22023', message = 'agent analysis structure is invalid';
+      end if;
+    end loop;
+  end loop;
 
   select ij.* into job_record
   from public.ingestion_jobs ij
@@ -184,15 +263,15 @@ begin
       and coalesce(item.value ->> 'url', '') ~* '^https?://'
   ) candidate;
 
-  if jsonb_typeof(p_analysis -> 'executiveEvidenceIds') is distinct from 'array' then
-    raise exception using errcode = '22023', message = 'agent analysis evidence references are invalid';
-  end if;
-  if jsonb_array_length(p_analysis -> 'executiveEvidenceIds') = 0 then
-    raise exception using errcode = '22023', message = 'agent analysis evidence references are invalid';
-  end if;
-  select coalesce(array_agg(distinct reference.value #>> '{}'), array[]::text[])
+  select coalesce(array_agg(distinct cited_id), array[]::text[])
   into cited_evidence_ids
-  from jsonb_path_query(p_analysis, '$.**.evidenceIds[*]') as reference(value);
+  from (
+    select item #>> '{}' as cited_id
+    from jsonb_array_elements(p_analysis -> 'executiveEvidenceIds') item
+    union all
+    select reference.value #>> '{}'
+    from jsonb_path_query(p_analysis, '$.**.evidenceIds[*]') as reference(value)
+  ) references_from_analysis;
   if cardinality(cited_evidence_ids) = 0
      or exists (
        select 1
@@ -2377,6 +2456,117 @@ CREATE OR REPLACE FUNCTION "public"."enqueue_workbench_job"(
     end;
     $$;
 
+CREATE OR REPLACE FUNCTION "public"."expire_stale_workbench_jobs"("p_actor_label" "text") RETURNS integer
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO ''
+    AS $$
+    declare
+      normalized_actor_label text := btrim(p_actor_label);
+      expired_count integer := 0;
+      expired_job record;
+    begin
+      if normalized_actor_label is null
+         or length(normalized_actor_label) not between 3 and 200 then
+        raise exception using errcode = '22023', message = 'invalid worker id';
+      end if;
+
+      for expired_job in
+        update public.ingestion_jobs ij
+        set status = 'failed', completed_at = now(),
+            error_code = 'JOB_LEASE_EXPIRED',
+            error_message = '执行器中断，任务已安全停止；请确认调用记录后手动重试。'
+        where ij.status = 'running'
+          and coalesce(ij.claimed_at, ij.started_at, ij.requested_at) < now() - interval '5 minutes'
+        returning ij.id, ij.workspace_id, ij.source_query_id, ij.worker_id
+      loop
+        expired_count := expired_count + 1;
+        if expired_job.source_query_id is not null then
+          update public.source_queries sq set status = 'failed'
+          where sq.workspace_id = expired_job.workspace_id
+            and sq.id = expired_job.source_query_id and sq.status = 'running';
+        end if;
+        insert into public.audit_logs (
+          workspace_id, actor_type, actor_label, action, entity_type, entity_id, metadata
+        ) values (
+          expired_job.workspace_id, 'service', normalized_actor_label,
+          'workbench.job.lease_expired', 'ingestion_job', expired_job.id::text,
+          jsonb_build_object('previous_worker_id', expired_job.worker_id)
+        );
+      end loop;
+
+      for expired_job in
+        update public.rule_runs rr
+        set status = 'failed', completed_at = now(),
+            error_code = 'JOB_LEASE_EXPIRED',
+            error_message = '执行器中断，任务已安全停止；请手动重试。'
+        where rr.status = 'running'
+          and coalesce(rr.claimed_at, rr.started_at, rr.requested_at) < now() - interval '5 minutes'
+        returning rr.id, rr.workspace_id, rr.worker_id
+      loop
+        expired_count := expired_count + 1;
+        insert into public.audit_logs (
+          workspace_id, actor_type, actor_label, action, entity_type, entity_id, metadata
+        ) values (
+          expired_job.workspace_id, 'service', normalized_actor_label,
+          'workbench.job.lease_expired', 'rule_run', expired_job.id::text,
+          jsonb_build_object('previous_worker_id', expired_job.worker_id)
+        );
+      end loop;
+
+      for expired_job in
+        update public.exports e
+        set status = 'failed', completed_at = now(),
+            error_code = 'JOB_LEASE_EXPIRED',
+            error_message = '执行器中断，任务已安全停止；请手动重试。'
+        where e.status = 'running'
+          and coalesce(e.claimed_at, e.requested_at) < now() - interval '5 minutes'
+        returning e.id, e.workspace_id, e.worker_id
+      loop
+        expired_count := expired_count + 1;
+        insert into public.audit_logs (
+          workspace_id, actor_type, actor_label, action, entity_type, entity_id, metadata
+        ) values (
+          expired_job.workspace_id, 'service', normalized_actor_label,
+          'workbench.job.lease_expired', 'export', expired_job.id::text,
+          jsonb_build_object('previous_worker_id', expired_job.worker_id)
+        );
+      end loop;
+
+      return expired_count;
+    end;
+    $$;
+
+CREATE OR REPLACE FUNCTION "public"."renew_workbench_job_lease"(
+    "p_job_type" "text", "p_job_id" "uuid", "p_worker_id" "text"
+) RETURNS boolean
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO ''
+    AS $$
+    declare
+      normalized_job_type text := lower(btrim(p_job_type));
+      normalized_worker_id text := btrim(p_worker_id);
+      renewed_count integer := 0;
+    begin
+      if normalized_worker_id is null or length(normalized_worker_id) not between 3 and 200 then
+        raise exception using errcode = '22023', message = 'invalid worker id';
+      end if;
+      if normalized_job_type = 'ingestion_job' then
+        update public.ingestion_jobs set claimed_at = now()
+        where id = p_job_id and status = 'running' and worker_id = normalized_worker_id;
+      elsif normalized_job_type = 'rule_run' then
+        update public.rule_runs set claimed_at = now()
+        where id = p_job_id and status = 'running' and worker_id = normalized_worker_id;
+      elsif normalized_job_type = 'export' then
+        update public.exports set claimed_at = now()
+        where id = p_job_id and status = 'running' and worker_id = normalized_worker_id;
+      else
+        raise exception using errcode = '22023', message = 'unsupported job type';
+      end if;
+      get diagnostics renewed_count = row_count;
+      return renewed_count = 1;
+    end;
+    $$;
+
 CREATE OR REPLACE FUNCTION "public"."claim_next_workbench_job"("p_worker_id" "text")
     RETURNS TABLE("job_type" "text", "job_id" "uuid", "workspace_id" "uuid", "payload" "jsonb")
     LANGUAGE "plpgsql" SECURITY DEFINER
@@ -2399,6 +2589,8 @@ CREATE OR REPLACE FUNCTION "public"."claim_next_workbench_job"("p_worker_id" "te
          or length(normalized_worker_id) not between 3 and 200 then
         raise exception using errcode = '22023', message = 'invalid worker id';
       end if;
+
+      perform public.expire_stale_workbench_jobs(normalized_worker_id);
 
       select ij.id, ij.requested_at
         into ingestion_candidate_id, ingestion_candidate_at
@@ -2700,6 +2892,47 @@ CREATE OR REPLACE FUNCTION "public"."complete_workbench_job"(
 
       return query
       select normalized_job_type, p_job_id, completed_workspace_id, completed_status;
+    end;
+    $$;
+
+CREATE OR REPLACE FUNCTION "public"."complete_workbench_job_guarded"(
+    "p_job_type" "text",
+    "p_job_id" "uuid",
+    "p_worker_id" "text",
+    "p_status" "text",
+    "p_result" "jsonb",
+    "p_error_code" "text",
+    "p_error_message" "text"
+) RETURNS TABLE("job_type" "text", "job_id" "uuid", "workspace_id" "uuid", "status" "text")
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO ''
+    AS $$
+    declare
+      normalized_job_type text := lower(btrim(p_job_type));
+      normalized_worker_id text := btrim(p_worker_id);
+      lease_is_active boolean := false;
+    begin
+      if normalized_worker_id is null or length(normalized_worker_id) not between 3 and 200 then
+        raise exception using errcode = '22023', message = 'invalid worker id';
+      end if;
+      if normalized_job_type = 'ingestion_job' then
+        select true into lease_is_active from public.ingestion_jobs ij
+        where ij.id = p_job_id and ij.status = 'running' and ij.worker_id = normalized_worker_id for update;
+      elsif normalized_job_type = 'rule_run' then
+        select true into lease_is_active from public.rule_runs rr
+        where rr.id = p_job_id and rr.status = 'running' and rr.worker_id = normalized_worker_id for update;
+      elsif normalized_job_type = 'export' then
+        select true into lease_is_active from public.exports e
+        where e.id = p_job_id and e.status = 'running' and e.worker_id = normalized_worker_id for update;
+      else
+        raise exception using errcode = '22023', message = 'unsupported job type';
+      end if;
+      if not coalesce(lease_is_active, false) then
+        raise exception using errcode = '55000', message = 'job lease is not active for this worker';
+      end if;
+      return query select * from public.complete_workbench_job(
+        normalized_job_type, p_job_id, p_status, p_result, p_error_code, p_error_message
+      );
     end;
     $$;
 
@@ -3596,6 +3829,47 @@ CREATE OR REPLACE FUNCTION "public"."persist_workbench_web_evidence"(
         persisted_source_record_id,
         persisted_snapshot_id,
         persisted_evidence_count;
+    end;
+    $$;
+
+CREATE OR REPLACE FUNCTION public.search_company_list_ids(
+    p_workspace_id uuid,
+    p_query text,
+    p_limit integer default 5000
+) RETURNS TABLE(company_list_id uuid)
+    LANGUAGE plpgsql
+    STABLE
+    SECURITY INVOKER
+    SET search_path TO ''
+    AS $$
+    declare
+      normalized_query text := lower(btrim(p_query));
+    begin
+      if p_workspace_id is null then
+        raise exception using errcode = '22023', message = 'workspace id is required';
+      end if;
+      if normalized_query is null or length(normalized_query) not between 1 and 200 then
+        raise exception using errcode = '22023', message = 'search query must contain 1 to 200 characters';
+      end if;
+      if p_limit not between 1 and 5000 then
+        raise exception using errcode = '22023', message = 'search result limit must be between 1 and 5000';
+      end if;
+
+      return query
+      select distinct clm.company_list_id
+      from public.company_list_members clm
+      join public.companies c
+        on c.workspace_id = clm.workspace_id
+       and c.id = clm.company_id
+      where clm.workspace_id = p_workspace_id
+        and clm.membership_status <> 'excluded'
+        and (
+          position(normalized_query in lower(c.name)) > 0
+          or position(normalized_query in lower(coalesce(c.unified_social_credit_code, ''))) > 0
+          or position(normalized_query in lower(coalesce(c.legal_representative, ''))) > 0
+        )
+      order by clm.company_list_id
+      limit p_limit;
     end;
     $$;
 

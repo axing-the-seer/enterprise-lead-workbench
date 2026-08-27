@@ -10,11 +10,12 @@ import type {
 } from "./consts";
 
 export type SignUpData = {
-  email: string;
   password: string;
-  first_name: string;
-  last_name: string;
-  bootstrap_token: string;
+  password_confirmation?: string;
+  email?: string;
+  first_name?: string;
+  last_name?: string;
+  bootstrap_token?: string;
 };
 
 export type BootstrapStatus = {
@@ -22,6 +23,7 @@ export type BootstrapStatus = {
   initialized: boolean;
   claimInProgress: boolean;
   available: boolean;
+  localSingleUserMode: boolean;
 };
 
 export type SalesFormData = {

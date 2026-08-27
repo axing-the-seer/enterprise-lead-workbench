@@ -33,7 +33,6 @@ async function createSale(
   user_id: string,
   data: {
     email: string;
-    password: string;
     first_name: string;
     last_name: string;
     disabled: boolean;
@@ -158,7 +157,6 @@ async function inviteUser(req: Request, currentUserSale: any) {
 
       const sale = await createSale(existingUser.id, {
         email,
-        password,
         first_name,
         last_name,
         disabled,

@@ -14,7 +14,7 @@ description: 部署 Web UI、Supabase、Provider Worker 和两套 Skill。
 3. 在服务端 Secret 中配置至少 24 字节的 `WORKBENCH_BOOTSTRAP_TOKEN`。
 4. 将 `WORKBENCH_PUBLIC_ORIGIN` 固定为 Supabase Functions 所在的 HTTPS Origin，例如 `https://<project-ref>.supabase.co`。生产环境缺失或使用 HTTP 时 MCP 会拒绝启动，不会从 `Host` / `X-Forwarded-Host` 猜测外部地址。
 5. 保持公开 Email/SMS 注册关闭；首位管理员创建成功后，引导页面会永久关闭。
-6. 为获客助手、企查查和联网搜索配置服务器端凭证或可执行程序路径。凭证不得使用 `VITE_*` 变量。
+6. 为获客助手配置服务器端凭证，为企查查和 Ego Lite 配置可执行程序路径。凭证不得使用 `VITE_*` 变量；Ego Lite 不需要浏览器端密钥。
 
 使用仓库的 GitHub Actions 部署时，工作流会把受信任的 `SUPABASE_URL` 明确写为该 Origin；只有通过自定义代理域名暴露 MCP 时，才需要创建 Repository Variable `WORKBENCH_PUBLIC_ORIGIN` 覆盖它。初始化脚本也会根据项目引用自动写入同一地址。
 
@@ -48,7 +48,7 @@ VITE_SB_PUBLISHABLE_KEY='<公开发布密钥>' \
 npm run build
 ```
 
-将 `dist` 部署到支持 SPA 回退的静态站点。公开发布密钥受 RLS 保护；服务角色密钥、获客助手 Key、企查查配置和联网搜索 Key 不得进入 `dist`。
+将 `dist` 部署到支持 SPA 回退的静态站点。公开发布密钥受 RLS 保护；服务角色密钥、获客助手 Key、企查查配置和本机可执行程序路径不得进入 `dist`。
 
 ## 4. 发布门禁
 

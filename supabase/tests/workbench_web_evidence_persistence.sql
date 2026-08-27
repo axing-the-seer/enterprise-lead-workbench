@@ -79,9 +79,9 @@ insert into public.source_connections (
   (
     '22000000-0000-0000-0000-000000000001',
     '12000000-0000-0000-0000-000000000001',
-    'web_search', '腾讯云联网搜索', 'web_search', 'draft',
-    '{"endpoint":"https://api.wsa.cloud.tencent.com/SearchPro"}'::jsonb,
-    array['web_evidence']::text[],
+    'web_search', 'Ego Lite 公开信息报告', 'web_search', 'draft',
+    '{"engine":"ego_lite","executable":"ego-browser"}'::jsonb,
+    array['web_evidence','public_report','html_report']::text[],
     '00000000-0000-0000-0000-000000000031',
     '00000000-0000-0000-0000-000000000031'
   ),
@@ -128,7 +128,7 @@ select is(
     from public.persist_workbench_web_evidence(
       '32000000-0000-0000-0000-000000000001',
       301,
-      'wsa:company-a:request-1',
+      'ego-report:company-a:request-1',
       '{"requestId":"req-1","pages":[{"rank":1}]}'::jsonb,
       repeat('a', 64),
       '2026-08-20 04:00:00+00'::timestamp with time zone,
@@ -148,7 +148,7 @@ select is(
           "authorityLevel":3,
           "providerScore":0.92,
           "query":"联网证据企业 A",
-          "version":"wsa-v1",
+          "version":"ego-lite-v1",
           "requestId":"req-1"
         },
         {
@@ -250,8 +250,8 @@ select is(
     from public.company_evidence
     where metadata ->> 'claim_type' = 'official_website'
   ),
-  'official_website|0.95|link_only|true|示例官网|2026-08-19T08:00:00Z|3|0.92|联网证据企业 A|wsa-v1|req-1',
-  'required WSA metadata remains attributable without becoming company facts'
+  'official_website|0.95|link_only|true|示例官网|2026-08-19T08:00:00Z|3|0.92|联网证据企业 A|ego-lite-v1|req-1',
+  'required Ego Lite metadata remains attributable without becoming company facts'
 );
 
 select is(
@@ -282,7 +282,7 @@ select is(
     from public.persist_workbench_web_evidence(
       '32000000-0000-0000-0000-000000000001',
       301,
-      'wsa:company-a:request-1',
+      'ego-report:company-a:request-1',
       '{"requestId":"req-1","pages":[{"rank":1}]}'::jsonb,
       repeat('a', 64),
       '2026-08-20 04:00:00+00'::timestamp with time zone,
@@ -317,7 +317,7 @@ select throws_ok(
   $$
     select * from public.persist_workbench_web_evidence(
       '32000000-0000-0000-0000-000000000001', 301,
-      'wsa:company-a:request-1', '{}'::jsonb, repeat('c', 64), now(),
+      'ego-report:company-a:request-1', '{}'::jsonb, repeat('c', 64), now(),
       '{}'::jsonb, repeat('b', 64), '[]'::jsonb
     )
   $$,
@@ -330,7 +330,7 @@ select throws_ok(
   $$
     select * from public.persist_workbench_web_evidence(
       '32000000-0000-0000-0000-000000000001', 303,
-      'wsa:company-a:request-1',
+      'ego-report:company-a:request-1',
       '{"requestId":"req-1","pages":[{"rank":1}]}'::jsonb,
       repeat('a', 64), now(), '{}'::jsonb, repeat('e', 64), '[]'::jsonb
     )

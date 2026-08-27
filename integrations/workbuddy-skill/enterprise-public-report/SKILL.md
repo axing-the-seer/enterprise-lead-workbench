@@ -7,16 +7,18 @@ description: 在已连接企业名单工作台 MCP 时，读取 Ego Lite 采集�
 
 本 Skill 是 Agent 适配层。企业名单工作台负责企业主档、Ego Lite 采集、证据保存和统一报告版式；当前 Agent 负责理解证据、形成判断，并在用户明确要求时调用自身已有的飞书、微信或其他通讯能力发送文件。
 
+所有回复面向业务用户。不要说“Skill 已加载”“MCP 工具”“OAuth”、内部状态、字段名或证据任务 ID。成功的连接检查保持静默；只有无法继续时，才用自然中文说明用户需要做什么。
+
 ## 首次运行与连接检查
 
 1. 在读取本机文件、执行终端命令或调用网络之前，先确认当前 Agent 是否真实提供 `list_workspaces`、`list_companies` 和 `list_source_connections` 工具。
-2. 工具不存在时立即停止，明确说明“Skill 已加载，但企业名单工作台 MCP 尚未连接”。请用户从 Web UI“配置 → AI / MCP 接入”复制当前环境的 MCP 地址，在 WorkBuddy 或当前 Agent 的连接器界面添加远程 MCP，并在浏览器完成 OAuth 授权后重试。
+2. 工具不存在时立即停止，只说“企业名单工作台尚未连接”。请用户从 Web UI“配置 → 智能助手”复制连接地址，在 WorkBuddy 或当前智能助手的连接器界面添加，并按页面提示完成授权后重试。面向用户不解释 MCP 或 OAuth 等实现术语。
 3. 禁止为了补齐连接而扫描本机端口或项目目录，禁止读写 `~/.workbuddy/mcp.json`，禁止自行生成或保存 JWT，禁止查询、猜测、更改任何账号密码。Skill 不内置域名、端口、账号或凭证。
-4. 工具存在但返回未授权、401 或需要登录时，只引导用户在已打开的工作台授权页完成登录和允许；不索取密码、Token 或 Key。
+4. 工具存在但返回未授权、401 或需要解锁时，只引导用户在已打开的工作台页面完成解锁和允许；不索取密码、Token 或 Key。
 
 ## 工作流
 
-1. 用 `list_workspaces` 确认工作空间，再用 `list_companies` 锁定已入库企业。出现多个同名主体时，展示企业名、信用代码和地区，让用户确认；不得默认选择第一家。
+1. 用 `list_workspaces` 确认工作空间，再用 `list_companies` 锁定已入库企业。出现多个同名主体时，展示企业名、信用代码和地区，让用户确认；不得默认选择第一家。用户没有说明报告用途时，用一个问题询问更关心“销售开发”“商务合作”“风险核验”还是“竞争分析”，并在分析中围绕该目的取舍资料。
 2. 查找该企业已有的最新证据任务：
    - 用 `list_ingestion_jobs` 查已完成或部分完成的 `web_evidence` 任务。
    - 没有可用任务时，用 `list_source_connections` 找到可用的 `web_search`，再调用 `start_ingestion_query`，固定使用 `queryKind=web_evidence`、`claimType=public_report`、`reportMode=true` 和已确认的 `companyId`。
@@ -41,7 +43,7 @@ description: 在已连接企业名单工作台 MCP 时，读取 Ego Lite 采集�
    解析 stdout，使用 `present_files` 展示生成的 HTML。不要自己重新设计 HTML，也不要把证据摘要直接当作最终报告。
 8. 只有用户明确提出收件人和发送渠道时，才使用当前 Agent 已有的通讯工具发送 HTML/PDF 或名单文件。工作台不配置、不保存飞书或微信凭证。发送前复述收件人与附件；通讯工具不可用时，交付文件并说明缺少哪项能力。
 
-交付时同时返回报告 ID 和 Web UI 路由 `/#/reports/{evidenceJobId}`。路由参数是证据任务 ID，不是报告 ID；不得把 `reportId` 拼到路由中。
+交付时展示生成的报告文件，并返回 Web UI 报告入口 `/#/reports/{evidenceJobId}`。有工作台基址时组成可点击链接；没有时只返回路由片段，不猜域名和端口。路由参数是证据任务 ID，不是报告 ID；对用户只展示链接，不单独播报内部 ID。
 
 ## 重要边界
 

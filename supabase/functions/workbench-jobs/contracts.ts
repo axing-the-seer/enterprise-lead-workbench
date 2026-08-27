@@ -87,7 +87,16 @@ const queryIngestionPayloadSchema = z
     criteria: jsonObjectSchema,
     mappingVersionId: idSchema.optional(),
   })
-  .strict();
+  .strict()
+  .superRefine((value, context) => {
+    if (value.queryKind === "company_search" && !value.listName) {
+      context.addIssue({
+        code: "custom",
+        path: ["listName"],
+        message: "找企业任务必须填写名单名称",
+      });
+    }
+  });
 
 const startIngestionSchema = z.object({
   workspaceId: workspaceIdSchema,

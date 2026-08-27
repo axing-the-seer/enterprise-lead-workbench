@@ -103,8 +103,10 @@ export type CompletionStatus = "completed" | "partial" | "failed" | "cancelled";
 
 export interface WorkbenchStore {
   claimNext(workerId: string): Promise<ClaimedWorkbenchJob | null>;
+  renewLease(job: ClaimedWorkbenchJob, workerId: string): Promise<boolean>;
   complete(
     job: ClaimedWorkbenchJob,
+    workerId: string,
     status: CompletionStatus,
     result: Record<string, unknown>,
     errorCode?: string,
@@ -123,6 +125,7 @@ export interface WorkbenchStore {
     },
   ): Promise<void>;
   downloadImport(path: string): Promise<Uint8Array>;
+  deleteImport(path: string): Promise<void>;
   loadMappingDefinition(
     workspaceId: string,
     mappingVersionId: string | null,

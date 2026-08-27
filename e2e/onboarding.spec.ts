@@ -2,6 +2,11 @@ import { test, expect } from "./fixtures";
 
 const bootstrapToken = process.env.WORKBENCH_BOOTSTRAP_TOKEN;
 
+// The first-admin claim is deliberately one-time and cannot be reset through
+// the public API. Retrying this spec would test a different state instead of
+// retrying the same onboarding flow.
+test.describe.configure({ retries: 0 });
+
 test("first administrator continues into workspace initialization", async ({
   page,
   isMobile,
@@ -26,9 +31,9 @@ test("first administrator continues into workspace initialization", async ({
   await page.getByLabel("密码").fill("local-e2e-password-2026");
   await page.getByRole("button", { name: "创建首位管理员" }).click();
 
-  await expect(
-    page.getByRole("heading", { name: "初始化企业名单工作台" }),
-  ).toBeVisible();
+  // The signup page and workspace gate intentionally share the same heading,
+  // so wait for the route transition before asserting the next form.
+  await expect(page).toHaveURL(/#\/$/);
   await expect(page.getByLabel("工作空间名称")).toBeVisible();
   await page.getByLabel("工作空间名称").fill("本地验收工作空间");
   await page.getByLabel("Slug").fill("local-acceptance-workspace");

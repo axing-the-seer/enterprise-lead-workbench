@@ -201,9 +201,9 @@ export function RunsPage() {
                 {(ingestion.data?.length ?? 0) === 0 ? (
                   <EmptyState
                     title="还没有接入任务"
-                    description="请从数据批次页面发起真实数据源查询或上传文件。"
-                    actionLabel="前往数据批次"
-                    actionTo="/batches"
+                    description="请从“找企业”页发起真实数据查询或导入已有名单。"
+                    actionLabel="前往找企业"
+                    actionTo="/"
                   />
                 ) : (
                   <Table>

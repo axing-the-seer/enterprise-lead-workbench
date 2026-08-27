@@ -1,4 +1,5 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import {
   ArrowRight,
   Buildings,
@@ -7,72 +8,72 @@ import {
   MagnifyingGlass,
   Plus,
 } from "@phosphor-icons/react";
-import { useGetList } from "ra-core";
 import { Link, useSearchParams } from "react-router";
 import { Badge } from "@/components/ui/badge";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import type { Company, CompanyList, CompanyListMember } from "./types";
-import { formatDateTime } from "./utils";
+import { getSupabaseClient } from "@/components/atomic-crm/providers/supabase/supabase";
+import type { CompanyList } from "./types";
+import { formatDateTime, getErrorMessage } from "./utils";
 import { useWorkspace } from "./workspace";
+import { useAllRecords } from "./useAllRecords";
 
 export function MyListsPage() {
   const { workspace } = useWorkspace();
   const [params] = useSearchParams();
   const [search, setSearch] = useState(params.get("search") ?? "");
-  const lists = useGetList<CompanyList>("company_lists", {
-    pagination: { page: 1, perPage: 200 },
+  const [debouncedSearch, setDebouncedSearch] = useState(search.trim());
+  useEffect(() => {
+    const timer = window.setTimeout(
+      () => setDebouncedSearch(search.trim()),
+      250,
+    );
+    return () => window.clearTimeout(timer);
+  }, [search]);
+  const lists = useAllRecords<CompanyList>("company_lists_overview", {
     sort: { field: "created_at", order: "DESC" },
     filter: { workspace_id: workspace?.id },
+    maxRecords: 5_000,
+    enabled: Boolean(workspace?.id),
   });
-  const members = useGetList<CompanyListMember>("company_list_members", {
-    pagination: { page: 1, perPage: 5000 },
-    sort: { field: "added_at", order: "DESC" },
-    filter: { workspace_id: workspace?.id },
-  });
-  const companies = useGetList<Company>("companies", {
-    pagination: { page: 1, perPage: 5000 },
-    sort: { field: "updated_at", order: "DESC" },
-    filter: { workspace_id: workspace?.id },
+  const companyMatches = useQuery({
+    queryKey: [
+      "workbench",
+      "company-list-search",
+      workspace?.id,
+      debouncedSearch,
+    ],
+    enabled: Boolean(workspace?.id && debouncedSearch),
+    queryFn: async () => {
+      const { data, error } = await getSupabaseClient().rpc(
+        "search_company_list_ids",
+        {
+          p_workspace_id: workspace!.id,
+          p_query: debouncedSearch,
+          p_limit: 5_000,
+        },
+      );
+      if (error) throw error;
+      return (data ?? []).map((row: { company_list_id: string }) =>
+        String(row.company_list_id),
+      );
+    },
   });
 
   const counts = useMemo(() => {
     const map = new Map<string, number>();
-    for (const member of members.data ?? []) {
-      if (member.membership_status === "excluded") continue;
-      map.set(
-        member.company_list_id,
-        (map.get(member.company_list_id) ?? 0) + 1,
-      );
+    for (const list of lists.data ?? []) {
+      map.set(list.id, Number(list.company_count ?? 0));
     }
     return map;
-  }, [members.data]);
-  const matchingCompanyListIds = useMemo(() => {
-    const keyword = search.trim().toLocaleLowerCase("zh-CN");
-    if (!keyword) return new Set<string>();
-    const companyIds = new Set(
-      (companies.data ?? [])
-        .filter((company) =>
-          [
-            company.name,
-            company.unified_social_credit_code,
-            company.legal_representative,
-          ]
-            .filter(Boolean)
-            .some((value) =>
-              String(value).toLocaleLowerCase("zh-CN").includes(keyword),
-            ),
-        )
-        .map((company) => String(company.id)),
-    );
-    return new Set(
-      (members.data ?? [])
-        .filter((member) => companyIds.has(String(member.company_id)))
-        .map((member) => member.company_list_id),
-    );
-  }, [companies.data, members.data, search]);
+  }, [lists.data]);
+  const matchingCompanyListIds = useMemo(
+    () => new Set(companyMatches.data ?? []),
+    [companyMatches.data],
+  );
   const filtered = (lists.data ?? []).filter((list) => {
-    const keyword = search.trim().toLocaleLowerCase("zh-CN");
+    const keyword = debouncedSearch.toLocaleLowerCase("zh-CN");
     if (!keyword) return true;
     return (
       list.name.toLocaleLowerCase("zh-CN").includes(keyword) ||
@@ -113,6 +114,15 @@ export function MyListsPage() {
           />
         </div>
       </section>
+
+      {lists.error || companyMatches.error ? (
+        <Alert variant="destructive">
+          <AlertTitle>无法读取名单</AlertTitle>
+          <AlertDescription>
+            {getErrorMessage(lists.error || companyMatches.error)}
+          </AlertDescription>
+        </Alert>
+      ) : null}
 
       {filtered.length ? (
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">

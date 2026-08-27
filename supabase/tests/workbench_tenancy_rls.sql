@@ -2,7 +2,7 @@ begin;
 
 create extension if not exists pgtap with schema extensions;
 
-select plan(56);
+select plan(69);
 
 select has_table('public', 'workspaces', 'workspaces table exists');
 select has_table('public', 'source_connections', 'source connections table exists');
@@ -28,9 +28,9 @@ select has_function(
 
 select has_function(
   'public',
-  'complete_workbench_job',
-  array['text', 'uuid', 'text', 'jsonb', 'text', 'text'],
-  'worker completion RPC exists'
+  'complete_workbench_job_guarded',
+  array['text', 'uuid', 'text', 'text', 'jsonb', 'text', 'text'],
+  'lease-guarded worker completion RPC exists'
 );
 
 select has_function(
@@ -364,13 +364,14 @@ select is(
 select is(
   (
     select status
-    from public.complete_workbench_job(
+    from public.complete_workbench_job_guarded(
       'ingestion_job',
       (
         select id
         from public.ingestion_jobs
         where idempotency_key = 'connection-test-1'
       ),
+      'pgtap-worker-1',
       'completed',
       '{"received_count":0,"accepted_count":0,"rejected_count":0}'::jsonb,
       null,
@@ -493,13 +494,14 @@ select is(
 select is(
   (
     select status
-    from public.complete_workbench_job(
+    from public.complete_workbench_job_guarded(
       'ingestion_job',
       (
         select id
         from public.ingestion_jobs
         where idempotency_key = 'source-query-smoke-1'
       ),
+      'pgtap-worker-2',
       'partial',
       '{"received_count":2,"accepted_count":1,"rejected_count":1}'::jsonb,
       null,
@@ -630,6 +632,55 @@ select is(
   'workbench export bucket enforces a 50 MiB limit'
 );
 
+update public.ingestion_jobs
+set status = 'running',
+    worker_id = 'dead-worker',
+    claimed_at = now() - interval '10 minutes',
+    started_at = now() - interval '10 minutes',
+    completed_at = null,
+    error_code = null,
+    error_message = null
+where idempotency_key = 'connection-test-1';
+
+select count(*) from public.claim_next_workbench_job('lease-cleanup-worker');
+
+select is(
+  (
+    select ij.status || ':' || ij.error_code
+    from public.ingestion_jobs ij
+    where ij.idempotency_key = 'connection-test-1'
+  ),
+  'failed:JOB_LEASE_EXPIRED',
+  'claiming work safely expires a worker job whose heartbeat stopped'
+);
+
+select is(
+  public.renew_workbench_job_lease(
+    'ingestion_job',
+    (select id from public.ingestion_jobs where idempotency_key = 'connection-test-1'),
+    'dead-worker'
+  ),
+  false,
+  'an expired worker cannot renew its former lease'
+);
+
+select throws_ok(
+  $$
+    select * from public.complete_workbench_job_guarded(
+      'ingestion_job',
+      (select id from public.ingestion_jobs where idempotency_key = 'connection-test-1'),
+      'dead-worker',
+      'completed',
+      '{}'::jsonb,
+      null,
+      null
+    )
+  $$,
+  '55000',
+  'job lease is not active for this worker',
+  'an expired worker cannot overwrite the final job state'
+);
+
 select is(
   (
     select count(*)::integer
@@ -644,6 +695,105 @@ select is(
   ),
   3,
   'private import storage has read, upload and admin-delete policies'
+);
+
+reset role;
+
+insert into public.company_lists (id, workspace_id, name, created_by) values
+  (
+    '30000000-0000-0000-0000-000000000002',
+    '10000000-0000-0000-0000-000000000002',
+    '名单 B',
+    '00000000-0000-0000-0000-000000000002'
+  );
+
+insert into public.company_list_members (
+  workspace_id, company_list_id, company_id, added_by
+) values (
+  '10000000-0000-0000-0000-000000000002',
+  '30000000-0000-0000-0000-000000000002',
+  201,
+  '00000000-0000-0000-0000-000000000002'
+);
+
+select has_view(
+  'public',
+  'company_lists_overview',
+  'tenant-aware company list overview exists'
+);
+
+select has_view(
+  'public',
+  'company_list_entries',
+  'tenant-aware company list entry view exists'
+);
+
+select has_function(
+  'public',
+  'search_company_list_ids',
+  array['uuid', 'text', 'integer'],
+  'server-side company list search exists'
+);
+
+select ok(
+  not has_table_privilege('anon', 'public.company_lists_overview', 'SELECT'),
+  'anonymous users cannot read company list overviews'
+);
+
+select ok(
+  not has_table_privilege('anon', 'public.company_list_entries', 'SELECT'),
+  'anonymous users cannot read company list entries'
+);
+
+set local role authenticated;
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000001', true);
+
+select is(
+  (select count(*)::integer from public.company_lists_overview),
+  1,
+  'list overview hides another workspace'
+);
+
+select is(
+  (
+    select company_count::integer
+    from public.company_lists_overview
+    where id = '30000000-0000-0000-0000-000000000001'
+  ),
+  1,
+  'list overview returns an accurate active company count'
+);
+
+select is(
+  (select string_agg(name, ',') from public.company_list_entries),
+  '企业 A',
+  'list entry view returns only companies visible in the active workspace'
+);
+
+select is(
+  (
+    select count(*)::integer
+    from public.search_company_list_ids(
+      '10000000-0000-0000-0000-000000000001',
+      '企业 A',
+      5000
+    )
+  ),
+  1,
+  'list search returns a matching company from the active workspace'
+);
+
+select is(
+  (
+    select count(*)::integer
+    from public.search_company_list_ids(
+      '10000000-0000-0000-0000-000000000001',
+      '企业 B',
+      5000
+    )
+  ),
+  0,
+  'list search cannot reveal another workspace company'
 );
 
 select * from finish();

@@ -68,10 +68,6 @@ const SourceConnectionsPage = lazyWorkbenchPage(
   () => import("@/components/enterprise-workbench/SourceConnectionsPage"),
   "SourceConnectionsPage",
 );
-const BatchesPage = lazyWorkbenchPage(
-  () => import("@/components/enterprise-workbench/BatchesPage"),
-  "BatchesPage",
-);
 const FieldMappingsPage = lazyWorkbenchPage(
   () => import("@/components/enterprise-workbench/FieldMappingsPage"),
   "FieldMappingsPage",
@@ -288,7 +284,6 @@ const DesktopAdmin = (
         <Route path="/lists/:listId" element={<ListDetailPage />} />
         <Route path="/reports/:jobId" element={<PublicReportPage />} />
         <Route path="/sources" element={<SourceConnectionsPage />} />
-        <Route path="/batches" element={<BatchesPage />} />
         <Route path="/mappings" element={<FieldMappingsPage />} />
         <Route path="/rules" element={<RuleTemplatesPage />} />
         <Route path="/runs" element={<RunsPage />} />
@@ -313,6 +308,8 @@ const DesktopAdmin = (
       <Resource name="qualifications" />
       <Resource name="company_lists" />
       <Resource name="company_list_members" />
+      <Resource name="company_lists_overview" />
+      <Resource name="company_list_entries" />
       <Resource name="rule_sets" />
       <Resource name="rule_set_versions" />
       <Resource name="rule_runs" />
@@ -354,7 +351,6 @@ const MobileAdmin = (
         <Route path="/lists/:listId" element={<ListDetailPage />} />
         <Route path="/reports/:jobId" element={<PublicReportPage />} />
         <Route path="/sources" element={<SourceConnectionsPage />} />
-        <Route path="/batches" element={<BatchesPage />} />
         <Route path="/mappings" element={<FieldMappingsPage />} />
         <Route path="/rules" element={<RuleTemplatesPage />} />
         <Route path="/runs" element={<RunsPage />} />
@@ -379,6 +375,8 @@ const MobileAdmin = (
       <Resource name="qualifications" />
       <Resource name="company_lists" />
       <Resource name="company_list_members" />
+      <Resource name="company_lists_overview" />
+      <Resource name="company_list_entries" />
       <Resource name="rule_sets" />
       <Resource name="rule_set_versions" />
       <Resource name="rule_runs" />

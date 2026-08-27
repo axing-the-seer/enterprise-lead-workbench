@@ -36,6 +36,7 @@ Deno.test("maps a provider query without exposing credentials", () => {
       payload: {
         sourceConnectionId: connectionId,
         queryKind: "company_search",
+        listName: "江苏软件企业",
         criteria: { region: "江苏省", industry: "软件和信息技术服务业" },
       },
     }),
@@ -107,6 +108,26 @@ Deno.test("rejects secret-like fields in query criteria", () => {
       ),
     Error,
     "凭证字段",
+  );
+});
+
+Deno.test("requires a user-facing name for every company search", () => {
+  assertThrows(
+    () =>
+      parseWorkbenchAction(
+        JSON.stringify({
+          workspaceId,
+          action: "start_ingestion",
+          idempotencyKey: "query:2026-08-20:missing-list-name",
+          payload: {
+            sourceConnectionId: connectionId,
+            queryKind: "company_search",
+            criteria: { region: "杭州市", industry: "工业自动化" },
+          },
+        }),
+      ),
+    Error,
+    "名单名称",
   );
 });
 

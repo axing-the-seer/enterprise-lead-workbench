@@ -1,5 +1,7 @@
 .PHONY: build help
 
+SUPABASE_CLI ?= npx supabase
+
 # Run silently, show output on failure
 run-silent = $1 >/tmp/atomic-crm-$2.log 2>&1 || (cat /tmp/atomic-crm-$2.log && false)
 
@@ -27,16 +29,16 @@ install-lsp:
 	npm install -g typescript-language-server
 
 start-supabase: ## start supabase locally
-	npx supabase start
+	$(SUPABASE_CLI) start
 
 start-supabase-functions: ## start the supabase Functions watcher
-	npx supabase functions serve
+	$(SUPABASE_CLI) functions serve
 
 supabase-migrate-database: ## apply the migrations to the database
-	npx supabase migration up
+	$(SUPABASE_CLI) migration up
 
 supabase-reset-database: ## reset (and clear!) the database
-	npx supabase db reset
+	$(SUPABASE_CLI) db reset
 
 start-app: ## start the app locally
 	npm run dev
@@ -48,7 +50,7 @@ stop-app-e2e:
 	kill $$(lsof -t -i:5175)
 
 start-app-e2e-ci: build-e2e ## start the app pointing to the e2e supabase instance in CI mode (no open, no watch)
-	npx serve -l 5175 -L -s dist &
+	npx vite preview --host 127.0.0.1 --port 5175 &
 
 start: ## start Supabase, provider worker, and the Web app locally
 	npm run start:local
@@ -63,12 +65,12 @@ start-demo: ## start the app locally in demo mode
 	npm run dev:demo
 
 stop-supabase: ## stop local supabase
-	npx supabase stop
+	$(SUPABASE_CLI) stop
 
 stop: stop-supabase ## stop the stack locally
 
 start-supabase-e2e: ## start a separate supabase instance for e2e (fresh DB every run)
-	@npx supabase stop --workdir .supabase-e2e --no-backup 2>/dev/null || true
+	@$(SUPABASE_CLI) stop --workdir .supabase-e2e --no-backup 2>/dev/null || true
 	rm -rf .supabase-e2e/supabase
 	mkdir -p .supabase-e2e/supabase
 	cp supabase/config.e2e.toml .supabase-e2e/supabase/config.toml
@@ -78,13 +80,13 @@ start-supabase-e2e: ## start a separate supabase instance for e2e (fresh DB ever
 	cp -r supabase/templates .supabase-e2e/supabase/templates
 	cp supabase/seed.sql .supabase-e2e/supabase/seed.sql
 	cp supabase/signing_keys.json .supabase-e2e/supabase/signing_keys.json
-	@$(call run-silent-tty,npx supabase start --workdir .supabase-e2e,supabase-e2e)
+	@$(call run-silent-tty,$(SUPABASE_CLI) start --workdir .supabase-e2e,supabase-e2e)
 
 write-e2e-env: ## derive temporary browser-test credentials from the isolated local Supabase instance
 	node scripts/write-e2e-env.mjs
 
 stop-supabase-e2e: ## stop the e2e supabase instance
-	npx supabase stop --workdir .supabase-e2e --no-backup
+	$(SUPABASE_CLI) stop --workdir .supabase-e2e --no-backup
 
 start-e2e: start-supabase-e2e write-e2e-env start-app-e2e ## start the stack in e2e mode (fresh supabase instance + app pointing to it)
 
@@ -112,8 +114,8 @@ supabase-remote-init:
 	$(MAKE) supabase-deploy
 
 supabase-deploy:
-	npx supabase db push
-	npx supabase functions deploy
+	$(SUPABASE_CLI) db push
+	$(SUPABASE_CLI) functions deploy
 
 test-unit: test-app test-functions 
 
@@ -129,7 +131,7 @@ test-e2e: start-e2e
 	npx playwright test --ui
 
 test-e2e-ci: start-e2e-ci
-	npx wait-on http-get://localhost:54341/auth/v1/health http-get://localhost:5175
+	node scripts/wait-for-http.mjs http://127.0.0.1:54341/auth/v1/health http://127.0.0.1:5175
 	npx playwright test
 
 lint:

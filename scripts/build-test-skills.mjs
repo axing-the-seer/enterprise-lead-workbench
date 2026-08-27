@@ -80,6 +80,7 @@ for (const packageDefinition of packages) {
       stat(absolutePath),
     ]);
     archive.file(relativePath, contents, {
+      createFolders: false,
       date: fixedArchiveDate,
       unixPermissions: metadata.mode & 0o777,
     });

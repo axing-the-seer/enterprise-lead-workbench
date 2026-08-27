@@ -5,6 +5,7 @@ import { WorkbenchWorker, type WorkerProcessors } from "./worker";
 function fakeStore(job: ClaimedWorkbenchJob | null) {
   return {
     claimNext: vi.fn().mockResolvedValue(job),
+    renewLease: vi.fn().mockResolvedValue(true),
     complete: vi.fn().mockResolvedValue(undefined),
   } as unknown as WorkbenchStore & {
     claimNext: ReturnType<typeof vi.fn>;
@@ -46,10 +47,15 @@ describe("WorkbenchWorker", () => {
     const worker = new WorkbenchWorker(store, "test-worker", processors(run));
     await expect(worker.runOnce()).resolves.toBe(true);
     expect(run).toHaveBeenCalledWith(job, store);
-    expect(store.complete).toHaveBeenCalledWith(job, "completed", {
-      accepted_count: 2,
-      rejected_count: 0,
-    });
+    expect(store.complete).toHaveBeenCalledWith(
+      job,
+      "test-worker",
+      "completed",
+      {
+        accepted_count: 2,
+        rejected_count: 0,
+      },
+    );
   });
 
   it("stores a safe failure without leaking an unexpected error message", async () => {
@@ -59,10 +65,43 @@ describe("WorkbenchWorker", () => {
     await worker.runOnce();
     expect(store.complete).toHaveBeenCalledWith(
       job,
+      "test-worker",
       "failed",
       {},
       "WORKER_UNEXPECTED_ERROR",
       "任务执行失败；详细诊断仅保留在受控运行日志中。",
     );
+  });
+
+  it("keeps the daemon alive after a transient queue polling failure", async () => {
+    vi.useFakeTimers();
+    const abortController = new AbortController();
+    const store = fakeStore(null);
+    store.claimNext
+      .mockRejectedValueOnce(new Error("temporary connection failure"))
+      .mockImplementationOnce(async () => {
+        abortController.abort();
+        return null;
+      });
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined);
+    const worker = new WorkbenchWorker(
+      store,
+      "test-worker",
+      processors(vi.fn()),
+    );
+
+    const running = worker.run(abortController.signal);
+    await vi.runAllTimersAsync();
+    await expect(running).resolves.toBeUndefined();
+    expect(store.claimNext).toHaveBeenCalledTimes(2);
+    expect(consoleError).toHaveBeenCalledWith(
+      "provider worker queue polling failed",
+      expect.objectContaining({ retryInMs: 1000 }),
+    );
+
+    consoleError.mockRestore();
+    vi.useRealTimers();
   });
 });

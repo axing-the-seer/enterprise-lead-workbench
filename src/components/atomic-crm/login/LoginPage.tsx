@@ -10,6 +10,8 @@ import { SSOAuthButton } from "./SSOAuthButton";
 import {
   disableEmailPasswordAuthentication,
   googleWorkplaceDomain,
+  localSingleUserEmail,
+  localSingleUserMode,
 } from "./authConfig";
 
 /**
@@ -60,7 +62,12 @@ export const LoginPage = (props: { redirectTo?: string }) => {
 
   const handleSubmit: SubmitHandler<FieldValues> = (values) => {
     setLoading(true);
-    login(values, redirectTo)
+    login(
+      localSingleUserMode
+        ? { email: localSingleUserEmail, password: values.password }
+        : values,
+      redirectTo,
+    )
       .then(() => {
         setLoading(false);
       })
@@ -94,24 +101,29 @@ export const LoginPage = (props: { redirectTo?: string }) => {
           <ShieldCheck className="size-5" />
         </span>
         <h1 className="text-[30px] font-semibold tracking-[-0.035em]">
-          欢迎回来
+          {localSingleUserMode ? "解锁企业名单工作台" : "欢迎回来"}
         </h1>
         <p className="mt-2 text-sm leading-6 text-[#6e6e73]">
-          登录后继续管理企业名单、来源核验和公开信息报告。
+          {localSingleUserMode
+            ? "输入本机访问密码，继续管理企业名单和调研报告。"
+            : "登录后继续管理企业名单、来源核验和公开信息报告。"}
         </p>
       </div>
       {disableEmailPasswordAuthentication ? null : (
         <Form className="space-y-5" onSubmit={handleSubmit}>
+          {localSingleUserMode ? null : (
+            <TextInput
+              label="ra.auth.email"
+              source="email"
+              type="email"
+              validate={required()}
+            />
+          )}
           <TextInput
-            label="ra.auth.email"
-            source="email"
-            type="email"
-            validate={required()}
-          />
-          <TextInput
-            label="ra.auth.password"
+            label={localSingleUserMode ? "访问密码" : "ra.auth.password"}
             source="password"
             type="password"
+            autoComplete="current-password"
             validate={required()}
           />
           <Button
@@ -119,11 +131,15 @@ export const LoginPage = (props: { redirectTo?: string }) => {
             className="h-12 w-full cursor-pointer rounded-full bg-[#0071e3] text-[15px] hover:bg-[#0077ed]"
             disabled={loading}
           >
-            {loading ? "正在登录…" : translate("ra.auth.sign_in")}
+            {loading
+              ? "正在解锁…"
+              : localSingleUserMode
+                ? "进入工作台"
+                : translate("ra.auth.sign_in")}
           </Button>
         </Form>
       )}
-      {googleWorkplaceDomain ? (
+      {googleWorkplaceDomain && !localSingleUserMode ? (
         <SSOAuthButton
           className="h-12 w-full rounded-full"
           domain={googleWorkplaceDomain}
@@ -131,7 +147,7 @@ export const LoginPage = (props: { redirectTo?: string }) => {
           使用 Google Workspace 登录
         </SSOAuthButton>
       ) : null}
-      {disableEmailPasswordAuthentication ? null : (
+      {disableEmailPasswordAuthentication || localSingleUserMode ? null : (
         <Link
           to="/forgot-password"
           className="block text-center text-sm font-medium text-[#0066cc] hover:underline"
@@ -140,7 +156,9 @@ export const LoginPage = (props: { redirectTo?: string }) => {
         </Link>
       )}
       <p className="border-t border-black/[0.06] pt-5 text-center text-xs leading-5 text-[#86868b]">
-        账号、名单和数据源按工作空间隔离。平台不会在浏览器中保存供应商密钥。
+        {localSingleUserMode
+          ? "账号身份由本机内部管理；企查查与获客助手密钥不会写入浏览器。"
+          : "账号、名单和数据源按工作空间隔离。平台不会在浏览器中保存供应商密钥。"}
       </p>
     </Layout>
   );

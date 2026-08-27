@@ -48,6 +48,36 @@ function message(error: { message?: string; code?: string } | null): string {
     : (error?.message ?? "database error");
 }
 
+const MAX_LIST_RECORDS_PER_JOB = 20_000;
+const MAX_SOURCE_SNAPSHOTS_PER_JOB = 100_000;
+
+export function ingestionListName(job: ClaimedWorkbenchJob): string {
+  const inputParams = asObject(job.payload.input_params);
+  const requestedName =
+    typeof inputParams.list_name === "string"
+      ? inputParams.list_name.trim().slice(0, 120)
+      : "";
+  if (requestedName) return requestedName;
+
+  if (job.payload.job_kind === "import") {
+    const fileName =
+      typeof inputParams.file_name === "string"
+        ? inputParams.file_name.trim()
+        : "";
+    const baseName = fileName
+      .replace(/^.*[\\/]/, "")
+      .replace(/\.(csv|json|xlsx|xls)$/i, "")
+      .trim()
+      .slice(0, 110);
+    if (baseName) return `${baseName}导入名单`;
+  }
+
+  throw new WorkerError(
+    "COMPANY_LIST_NAME_REQUIRED",
+    "找企业任务必须使用用户可识别的名单名称。",
+  );
+}
+
 export class SupabaseWorkbenchStore implements WorkbenchStore {
   readonly client: SupabaseClient;
 
@@ -68,16 +98,32 @@ export class SupabaseWorkbenchStore implements WorkbenchStore {
     return row ? { ...row, payload: asObject(row.payload) } : null;
   }
 
+  async renewLease(
+    job: ClaimedWorkbenchJob,
+    workerId: string,
+  ): Promise<boolean> {
+    const { data, error } = await this.client.rpc("renew_workbench_job_lease", {
+      p_job_type: job.job_type,
+      p_job_id: job.job_id,
+      p_worker_id: workerId,
+    });
+    if (error)
+      throw new WorkerError("JOB_LEASE_RENEWAL_FAILED", message(error));
+    return data === true;
+  }
+
   async complete(
     job: ClaimedWorkbenchJob,
+    workerId: string,
     status: CompletionStatus,
     result: Record<string, unknown>,
     errorCode?: string,
     errorMessage?: string,
   ): Promise<void> {
-    const { error } = await this.client.rpc("complete_workbench_job", {
+    const { error } = await this.client.rpc("complete_workbench_job_guarded", {
       p_job_type: job.job_type,
       p_job_id: job.job_id,
+      p_worker_id: workerId,
       p_status: status,
       p_result: result,
       p_error_code: errorCode ?? null,
@@ -143,6 +189,18 @@ export class SupabaseWorkbenchStore implements WorkbenchStore {
     if (error || !data)
       throw new WorkerError("IMPORT_DOWNLOAD_FAILED", "无法读取上传文件。");
     return new Uint8Array(await data.arrayBuffer());
+  }
+
+  async deleteImport(path: string): Promise<void> {
+    const { error } = await this.client.storage
+      .from("workbench-imports")
+      .remove([path]);
+    if (error) {
+      throw new WorkerError(
+        "IMPORT_STAGING_CLEANUP_FAILED",
+        "已入库，但无法清理临时上传文件。",
+      );
+    }
   }
 
   async loadMappingDefinition(
@@ -253,21 +311,11 @@ export class SupabaseWorkbenchStore implements WorkbenchStore {
     _sourceQueryId: string | null,
     _requestedBy: string | null,
   ): Promise<string> {
-    const inputParams =
-      job.payload.input_params &&
-      typeof job.payload.input_params === "object" &&
-      !Array.isArray(job.payload.input_params)
-        ? (job.payload.input_params as Record<string, unknown>)
-        : {};
-    const requestedName =
-      typeof inputParams.list_name === "string"
-        ? inputParams.list_name.trim().slice(0, 120)
-        : "";
     const { data, error } = await this.client.rpc(
       "ensure_ingestion_company_list",
       {
         p_job_id: job.job_id,
-        p_name: requestedName || `数据批次 ${job.job_id.slice(0, 8)}`,
+        p_name: ingestionListName(job),
       },
     );
     if (error || !data)
@@ -412,6 +460,12 @@ export class SupabaseWorkbenchStore implements WorkbenchStore {
       if (error)
         throw new WorkerError("COMPANY_LIST_LOAD_FAILED", message(error));
       members.push(...((data ?? []) as typeof members));
+      if (members.length > MAX_LIST_RECORDS_PER_JOB) {
+        throw new WorkerError(
+          "COMPANY_LIST_TOO_LARGE",
+          `单次规则或导出任务最多处理 ${MAX_LIST_RECORDS_PER_JOB} 家企业，请拆分名单。`,
+        );
+      }
       if (!data || data.length < 1000) break;
       from += 1000;
     }
@@ -439,6 +493,12 @@ export class SupabaseWorkbenchStore implements WorkbenchStore {
           throw new WorkerError("SOURCE_SNAPSHOT_LOAD_FAILED", message(error));
         }
         snapshots.push(...((data ?? []) as PersistedLeadSnapshot[]));
+        if (snapshots.length > MAX_SOURCE_SNAPSHOTS_PER_JOB) {
+          throw new WorkerError(
+            "SOURCE_SNAPSHOT_LIMIT_EXCEEDED",
+            "名单关联的历史数据版本过多，请先归档旧版本或拆分名单。",
+          );
+        }
         if (!data || data.length < 1_000) break;
         snapshotFrom += 1_000;
       }

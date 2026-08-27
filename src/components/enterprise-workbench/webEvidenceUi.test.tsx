@@ -2,7 +2,7 @@ import type { ReactNode } from "react";
 import { CoreAdminContext } from "ra-core";
 import fakeDataProvider from "ra-data-fakerest";
 import { render } from "vitest-browser-react";
-import { WebEvidenceDialog } from "./EnterpriseReviewPage";
+import { PublicReportCollectionDialog } from "./EnterpriseReviewPage";
 import { SourceQueryDialog } from "./SourceQueryDialog";
 import type { SourceConnection } from "./types";
 
@@ -54,26 +54,26 @@ describe("Web 证据 GUI 边界", () => {
       .not.toBeInTheDocument();
   });
 
-  it("补充证据对话框绑定已有企业并显式提示额度", async () => {
+  it("报告资料对话框绑定已有企业并明确零模型 Token", async () => {
     const screen = await render(
-      <WebEvidenceDialog
+      <PublicReportCollectionDialog
         open
         onOpenChange={vi.fn()}
         workspaceId="fictional-workspace-id"
-        companyId="fictional-company-id"
+        companyId="123"
         companyName="虚构测试主体-Y"
       />,
       { wrapper: TestAdmin },
     );
 
     await expect
-      .element(screen.getByText("提交后将消耗腾讯云 WSA 搜索额度"))
+      .element(screen.getByText("资料采集不使用模型 Token"))
       .toBeVisible();
     await expect.element(screen.getByText(/\u865a构测试主体-Y/)).toBeVisible();
 
-    await screen.getByRole("combobox", { name: "Web 证据数据源" }).click();
+    await screen.getByRole("combobox", { name: "Ego Lite 资料源" }).click();
     await expect
-      .element(screen.getByText("虚构 Web 证据源（ready）"))
+      .element(screen.getByText("虚构 Web 证据源（已就绪）"))
       .toBeVisible();
   });
 });

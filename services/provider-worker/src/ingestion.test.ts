@@ -73,6 +73,18 @@ const qccConnection: SourceConnection = {
   capabilities: ["company_registration"],
 };
 
+const fileConnection: SourceConnection = {
+  id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+  workspace_id: "11111111-1111-4111-8111-111111111111",
+  provider: "file_upload",
+  name: "用户上传",
+  connection_kind: "file_upload",
+  status: "ready",
+  secret_reference: null,
+  connection_config: {},
+  capabilities: ["file_import"],
+};
+
 const egoResult: EgoSearchResult = {
   generatedAt: "2026-08-24T02:30:00.000Z",
   engine: "ego_lite",
@@ -274,5 +286,60 @@ describe("QCC company-detail enrichment", () => {
       qccConnection,
       expect.objectContaining({ status: "ready" }),
     );
+  });
+});
+
+describe("uploaded-file staging cleanup", () => {
+  it("removes the private staging object after a successful import", async () => {
+    const storagePath = `${fileConnection.workspace_id}/33333333-3333-4333-8333-333333333333/import.csv`;
+    const deleteImport = vi.fn().mockResolvedValue(undefined);
+    const store = {
+      getSourceConnection: vi.fn().mockResolvedValue(fileConnection),
+      downloadImport: vi
+        .fn()
+        .mockResolvedValue(
+          new TextEncoder().encode(
+            "企业名称,统一社会信用代码\n阿里巴巴(中国)网络技术有限公司,91330100716105852F\n",
+          ),
+        ),
+      deleteImport,
+      loadMappingDefinition: vi.fn().mockResolvedValue(null),
+      ensureIngestionList: vi
+        .fn()
+        .mockResolvedValue("bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"),
+      persistIngestionRecord: vi.fn().mockResolvedValue({
+        company_id: 18,
+        source_record_id: "77777777-7777-4777-8777-777777777777",
+        source_snapshot_id: "88888888-8888-4888-8888-888888888888",
+      }),
+      addCompanyListMember: vi.fn().mockResolvedValue(undefined),
+    } as unknown as WorkbenchStore;
+
+    const result = await processIngestionJob(
+      {
+        job_type: "ingestion_job",
+        job_id: "99999999-9999-4999-8999-999999999999",
+        workspace_id: fileConnection.workspace_id,
+        payload: {
+          source_connection_id: fileConnection.id,
+          job_kind: "import",
+          input_object_path: storagePath,
+          input_params: {
+            file_name: "import.csv",
+            media_type: "text/csv",
+          },
+          requested_by: "33333333-3333-4333-8333-333333333333",
+        },
+      },
+      store,
+    );
+
+    expect(result).toEqual(
+      expect.objectContaining({
+        accepted_count: 1,
+        staging_file_removed: true,
+      }),
+    );
+    expect(deleteImport).toHaveBeenCalledWith(storagePath);
   });
 });

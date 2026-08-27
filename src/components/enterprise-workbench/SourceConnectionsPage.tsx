@@ -83,9 +83,9 @@ const providerDefinitions: ProviderDefinition[] = [
     connectionKind: "cli",
     aliases: ["qcc", "qichacha_mcp"],
     name: "企查查",
-    role: "工商登记核验（当前已验收能力）",
+    role: "工商登记核验",
     description:
-      "当前生产驱动为已验证的服务端 qcc-agent-cli，本期只开放工商登记核验。测试连接仅验证 CLI 版本，不发起企业查询，也不消耗查询额度。",
+      "按企业全名或统一社会信用代码核验工商登记信息。检查连接不发起企业查询，也不消耗查询额度。",
     icon: Database,
   },
   {
@@ -231,16 +231,15 @@ export function SourceConnectionsPage() {
       <PageHeader
         eyebrow="数据来源"
         title="连接真实数据源"
-        description="连接状态只读取生产数据库与后端测试结果；填写配置不等于连接成功，页面不会用绿色状态或样例数据掩盖未部署的服务。"
+        description="这里显示真实连接和检查结果。只有检查通过或完成首次真实查询后，数据源才会标记为可用。"
       />
 
       <Alert className="border-amber-200 bg-amber-50/60 dark:border-amber-900 dark:bg-amber-950/30">
         <ShieldCheck />
         <AlertTitle>密钥不写入浏览器数据库</AlertTitle>
         <AlertDescription>
-          API 数据源只保存服务端凭证 URI。获客助手使用
-          env://KC_API_KEY；企查查由服务端 qcc-agent-cli
-          驱动；公开信息报告使用本机 Ego Lite。浏览器不读取或保存任何 Key。
+          获客助手和企查查凭证由本机服务保管，公开信息报告使用本机 Ego
+          Lite。浏览器只读取“是否已配置”，不读取或保存密钥。
         </AlertDescription>
       </Alert>
 
@@ -258,7 +257,6 @@ export function SourceConnectionsPage() {
               : undefined;
             const receipt = connection ? testJobs[connection.id] : undefined;
             const job = persistedJob ?? receipt;
-            const jobId = persistedJob?.id ?? receipt?.jobId;
             return (
               <Card key={definition.provider} className="shadow-none">
                 <CardHeader>
@@ -286,18 +284,12 @@ export function SourceConnectionsPage() {
                   </p>
                   <dl className="grid gap-2 rounded-lg border bg-muted/20 p-3 text-xs">
                     <div className="flex justify-between gap-3">
-                      <dt className="text-muted-foreground">连接标识</dt>
-                      <dd className="truncate font-mono">
-                        {connection?.provider ?? definition.provider}
-                      </dd>
-                    </div>
-                    <div className="flex justify-between gap-3">
                       <dt className="text-muted-foreground">最近测试</dt>
                       <dd>{formatDateTime(connection?.last_verified_at)}</dd>
                     </div>
                     {connection?.last_error_code ? (
                       <div className="border-t pt-2 text-red-600">
-                        错误代码：{connection.last_error_code}
+                        上次检查未通过，请重新检查或核对本机配置。
                       </div>
                     ) : null}
                   </dl>
@@ -318,9 +310,8 @@ export function SourceConnectionsPage() {
                                 : job.status}
                       </AlertTitle>
                       <AlertDescription>
-                        任务 ID：{jobId}。
                         {persistedJob?.status === "failed"
-                          ? ` ${persistedJob.error_message ?? persistedJob.error_code ?? "后端未返回错误详情。"}`
+                          ? ` ${persistedJob.error_message ?? "请核对本机配置后重试。"}`
                           : definition.provider === "web_search"
                             ? "本次只检查本机 Ego Lite 能否打开公开页面，不检索企业。"
                             : "只有数据库状态更新为“可用”或“待首次真实查询验证”后，才代表检查完成。"}
@@ -442,7 +433,6 @@ function ConnectionDialog({
   const [useManagedCredential, setUseManagedCredential] = useState(
     connection?.has_secret_reference ?? false,
   );
-  const isWebSearch = definition.provider === "web_search";
   const configKey = definition.configKey ?? "endpoint";
   const defaultEndpoint =
     definition.provider === "huoke_assistant" ? "https://loan.kdbank.cn" : "";
@@ -501,7 +491,7 @@ function ConnectionDialog({
         <DialogHeader>
           <DialogTitle>配置{definition.name}</DialogTitle>
           <DialogDescription>
-            此处只登记非敏感配置和服务端凭证引用。保存后请单独执行连接测试。
+            网页不要求输入密钥。保存后请返回数据源页检查连接。
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-4 py-2">
@@ -513,25 +503,15 @@ function ConnectionDialog({
               onChange={(event) => setDisplayName(event.target.value)}
             />
           </div>
-          <div className="space-y-2">
-            <Label htmlFor="provider-code">适配器标识</Label>
-            <Input
-              id="provider-code"
-              value={connection?.provider ?? definition.provider}
-              readOnly
-              className="font-mono"
-            />
-          </div>
           {definition.credentialLabel ? (
             <div className="flex items-center justify-between gap-4 rounded-lg border p-3">
               <div className="space-y-1">
                 <Label htmlFor="managed-credential">
-                  {isWebSearch ? "使用服务器腾讯云 WSA 凭证" : "使用服务器凭证"}
+                  使用本机已安装的获客助手
                 </Label>
                 <p className="text-xs leading-5 text-muted-foreground">
-                  {isWebSearch
-                    ? "Ego Lite 由本机管理，不需要在浏览器填写凭证。"
-                    : "只引用服务器变量 KC_API_KEY；浏览器不读取或保存 Key。"}
+                  如果已在 Agent 工具（如
+                  WorkBuddy）或本机完成获客助手配置，保持开启即可。
                 </p>
               </div>
               <Switch
@@ -544,26 +524,11 @@ function ConnectionDialog({
           {definition.provider === "qcc" ? (
             <Alert>
               <ShieldCheck />
-              <AlertTitle>CLI 由服务器管理</AlertTitle>
+              <AlertTitle>使用本机企查查连接</AlertTitle>
               <AlertDescription>
-                浏览器不能修改可执行命令；部署端通过 QCC_CLI_PATH 或默认 qcc
-                命令提供服务。
+                企查查由本机服务统一调用，无需在网页内再次输入密钥。
               </AlertDescription>
             </Alert>
-          ) : null}
-          {definition.endpointLabel ? (
-            <div className="space-y-2">
-              <Label htmlFor="service-endpoint">
-                {definition.endpointLabel}
-              </Label>
-              <Input
-                id="service-endpoint"
-                value={endpoint}
-                onChange={(event) => setEndpoint(event.target.value)}
-                placeholder={definition.endpointPlaceholder}
-                readOnly={false}
-              />
-            </div>
           ) : null}
         </div>
         <DialogFooter>

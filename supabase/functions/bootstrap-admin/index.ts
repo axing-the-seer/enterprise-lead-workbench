@@ -5,8 +5,11 @@ import {
   BootstrapInputError,
   constantTimeTokenEqual,
   isBootstrapTokenConfigured,
+  isLocalBootstrapRequestAllowed,
+  isLocalSingleUserModeEnabled,
   MAX_BOOTSTRAP_REQUEST_BYTES,
   parseBootstrapAdminInput,
+  parseLocalBootstrapAdminInput,
   type BootstrapStatus,
 } from "./contracts.ts";
 
@@ -32,6 +35,7 @@ function errorResponse(
 
 async function getBootstrapStatus(
   configured: boolean,
+  localSingleUserMode: boolean,
 ): Promise<BootstrapStatus> {
   const { data, error } = await supabaseAdmin.rpc(
     "get_first_admin_bootstrap_state",
@@ -50,6 +54,7 @@ async function getBootstrapStatus(
     initialized,
     claimInProgress,
     available: configured && !initialized && !claimInProgress,
+    localSingleUserMode,
   };
 }
 
@@ -81,6 +86,10 @@ async function handler(req: Request): Promise<Response> {
 
   const configuredToken = Deno.env.get("WORKBENCH_BOOTSTRAP_TOKEN");
   const configured = isBootstrapTokenConfigured(configuredToken);
+  const localSingleUserMode = isLocalSingleUserModeEnabled(
+    Deno.env.get("WORKBENCH_LOCAL_SINGLE_USER"),
+    Deno.env.get("WORKBENCH_PUBLIC_ORIGIN") ?? Deno.env.get("SUPABASE_URL"),
+  );
 
   let body: unknown;
   try {
@@ -100,7 +109,7 @@ async function handler(req: Request): Promise<Response> {
   ) {
     try {
       return jsonResponse(200, {
-        data: await getBootstrapStatus(configured),
+        data: await getBootstrapStatus(configured, localSingleUserMode),
       });
     } catch {
       return errorResponse(
@@ -119,9 +128,29 @@ async function handler(req: Request): Promise<Response> {
     );
   }
 
+  if (
+    localSingleUserMode &&
+    body &&
+    typeof body === "object" &&
+    !Array.isArray(body) &&
+    (body as Record<string, unknown>).action === "create-local" &&
+    !isLocalBootstrapRequestAllowed(
+      req.headers.get("origin"),
+      req.headers.get("sec-fetch-site"),
+    )
+  ) {
+    return errorResponse(
+      403,
+      "LOCAL_ORIGIN_DENIED",
+      "请从本机企业名单工作台页面设置访问密码",
+    );
+  }
+
   let input;
   try {
-    input = parseBootstrapAdminInput(body);
+    input = localSingleUserMode
+      ? parseLocalBootstrapAdminInput(body, configuredToken)
+      : parseBootstrapAdminInput(body);
   } catch (error) {
     if (error instanceof BootstrapInputError) {
       return errorResponse(400, error.code, error.message);
@@ -146,7 +175,10 @@ async function handler(req: Request): Promise<Response> {
     );
   }
   if (claimed !== true) {
-    const status = await getBootstrapStatus(configured).catch(() => null);
+    const status = await getBootstrapStatus(
+      configured,
+      localSingleUserMode,
+    ).catch(() => null);
     return errorResponse(
       409,
       status?.initialized ? "ALREADY_INITIALIZED" : "BOOTSTRAP_IN_PROGRESS",

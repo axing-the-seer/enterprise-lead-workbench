@@ -33,6 +33,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 import { ConfigurationDrawer } from "./ConfigurationDrawer";
 import { WorkspaceGate, WorkspaceProvider } from "./workspace";
+import { localSingleUserMode } from "@/components/atomic-crm/login/authConfig";
 
 const primaryNavigation = [
   { label: "找企业", href: "/", active: (path: string) => path === "/" },
@@ -65,14 +66,16 @@ function Brand() {
 function AccountMenu() {
   const { identity } = useGetIdentity();
   const logout = useLogout();
-  const name = identity?.fullName || identity?.email || "当前账号";
+  const name = localSingleUserMode
+    ? "本机工作台"
+    : identity?.fullName || identity?.email || "当前账号";
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
         <Button
           variant="ghost"
           className="h-9 gap-0 rounded-full px-0.5 text-white hover:bg-white/10 hover:text-white sm:h-10 sm:gap-2 sm:px-1.5"
-          aria-label="账号菜单"
+          aria-label={localSingleUserMode ? "本机工作台菜单" : "账号菜单"}
         >
           <Avatar className="size-8 border border-white/20 bg-white/10">
             <AvatarFallback className="bg-white/10 text-white">
@@ -91,7 +94,11 @@ function AccountMenu() {
       >
         <DropdownMenuLabel className="px-3 py-2">
           <span className="block truncate text-sm font-semibold">{name}</span>
-          {identity?.email && identity.email !== name ? (
+          {localSingleUserMode ? (
+            <span className="mt-0.5 block truncate text-xs font-normal text-muted-foreground">
+              仅在这台电脑上访问
+            </span>
+          ) : identity?.email && identity.email !== name ? (
             <span className="mt-0.5 block truncate text-xs font-normal text-muted-foreground">
               {identity.email}
             </span>
@@ -100,7 +107,7 @@ function AccountMenu() {
         <DropdownMenuSeparator />
         <DropdownMenuItem className="rounded-xl" onSelect={() => logout()}>
           <SignOut className="size-4" />
-          退出登录
+          {localSingleUserMode ? "锁定工作台" : "退出登录"}
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>

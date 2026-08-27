@@ -407,27 +407,9 @@ const lookupCriteriaSchema = z
 const webEvidenceCriteriaSchema = z
   .object({
     companyId: companyIdSchema,
-    claimType: z.enum([
-      "official_website",
-      "product",
-      "award",
-      "tender",
-      "recruiting",
-      "news",
-      "public_report",
-      "other",
-    ]),
-    reportMode: z.boolean().optional(),
-    extraKeywords: z.array(z.string().trim().min(1).max(40)).max(8).optional(),
-    site: z
-      .string()
-      .trim()
-      .max(253)
-      .regex(
-        /^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/i,
-      )
-      .optional(),
-    maxResults: z.number().int().min(1).max(10).default(10),
+    claimType: z.literal("public_report"),
+    reportMode: z.literal(true),
+    maxResults: z.number().int().min(1).max(8).default(6),
   })
   .strict();
 
@@ -460,6 +442,7 @@ export const startIngestionQueryInputSchema = z.discriminatedUnion(
       .object({
         ...ingestionQueryCommon,
         queryKind: z.literal("company_search"),
+        listName: z.string().trim().min(2).max(120),
         criteria: companySearchCriteriaSchema,
       })
       .strict(),

@@ -77,11 +77,10 @@ export type CompanyListMember = WorkbenchRecord & {
   company_id: string | number;
   source_record_id?: string | null;
   membership_status?: "included" | "excluded" | "needs_review" | null;
-  manual_note?: string | null;
   added_at?: string | null;
 };
 
-export type Company = WorkbenchRecord & {
+type CompanyFields = {
   name: string;
   normalized_name?: string | null;
   unified_social_credit_code?: string | null;
@@ -107,6 +106,23 @@ export type Company = WorkbenchRecord & {
   last_verified_at?: string | null;
   insured_employee_count?: number | null;
 };
+
+export type Company = WorkbenchRecord & CompanyFields;
+
+export type CompanyListEntry = WorkbenchRecord &
+  CompanyFields & {
+    member_id: string;
+    company_list_id: string;
+    company_id: string | number;
+    source_record_id?: string | null;
+    membership_status?: "included" | "excluded" | "needs_review" | null;
+    added_at?: string | null;
+    membership_updated_at?: string | null;
+    latest_normalized_payload?: Record<string, unknown> | null;
+    current_report_id?: string | null;
+    current_report_job_id?: string | null;
+    current_report_submitted_at?: string | null;
+  };
 
 export type CompanyFieldFact = WorkbenchRecord & {
   company_id: string | number;

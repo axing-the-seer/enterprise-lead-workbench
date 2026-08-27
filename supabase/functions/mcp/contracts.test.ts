@@ -210,6 +210,7 @@ Deno.test("query ingestion maps only to the controlled enqueue RPC", () => {
     sourceConnectionId: connectionId,
     queryKind: "company_search",
     queryText: "查找北京软件企业",
+    listName: "北京软件企业",
     criteria: {
       regions: [{ label: "北京市", providerValues: ["北京市"] }],
       industries: [
@@ -285,6 +286,7 @@ Deno.test(
           workspaceId,
           sourceConnectionId: connectionId,
           queryKind: "company_search",
+          listName: "北京软件企业",
           criteria: {},
           storagePath: `${workspaceId}/file.csv`,
           idempotencyKey: "mcp-query:2026-08-20:002",
@@ -297,6 +299,7 @@ Deno.test(
           workspaceId,
           sourceConnectionId: connectionId,
           queryKind: "company_search",
+          listName: "北京软件企业",
           criteria: { nested: { api_key: "must-not-enter-job-payload" } },
           idempotencyKey: "mcp-query:2026-08-20:003",
         }),
@@ -319,7 +322,8 @@ Deno.test(
       queryKind: "web_evidence",
       criteria: {
         companyId: "42",
-        claimType: "news",
+        claimType: "public_report",
+        reportMode: true,
         maxResults: 5,
       },
       idempotencyKey: "mcp-query:2026-08-20:005",
@@ -342,12 +346,53 @@ Deno.test(
           criteria: {
             companyId: "42",
             companyName: "客户端不得覆盖数据库名称",
-            claimType: "news",
+            claimType: "public_report",
+            reportMode: true,
           },
           idempotencyKey: "mcp-query:2026-08-20:006",
         }),
       "web evidence must resolve the company from the database",
     );
+    assertThrows(
+      () =>
+        startIngestionQueryInputSchema.parse({
+          workspaceId,
+          sourceConnectionId: connectionId,
+          queryKind: "company_search",
+          criteria: {},
+          idempotencyKey: "mcp-query:2026-08-20:007",
+        }),
+      "company search must require a user-facing list name",
+    );
+    for (const invalidCriteria of [
+      {
+        companyId: "42",
+        claimType: "news_signal",
+        reportMode: true,
+      },
+      {
+        companyId: "42",
+        claimType: "public_report",
+      },
+      {
+        companyId: "42",
+        claimType: "public_report",
+        reportMode: true,
+        maxResults: 9,
+      },
+    ]) {
+      assertThrows(
+        () =>
+          startIngestionQueryInputSchema.parse({
+            workspaceId,
+            sourceConnectionId: connectionId,
+            queryKind: "web_evidence",
+            criteria: invalidCriteria,
+            idempotencyKey: "mcp-query:2026-08-20:invalid-report",
+          }),
+        "public report collection must reject the legacy or oversized contract",
+      );
+    }
   },
 );
 

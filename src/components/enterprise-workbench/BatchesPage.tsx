@@ -271,7 +271,7 @@ export function BatchesPage() {
   );
 }
 
-function FileUploadDialog({
+export function FileUploadDialog({
   open,
   onOpenChange,
   workspaceId,
@@ -290,7 +290,7 @@ function FileUploadDialog({
   mappingSets: FieldMappingSet[];
   mappingVersions: FieldMappingVersion[];
   mappingsError: unknown;
-  onSubmitted: () => void;
+  onSubmitted: (receipt: WorkbenchJobResponse) => void;
 }) {
   const notify = useNotify();
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -437,7 +437,7 @@ function FileUploadDialog({
       );
       setReceipt(job);
       notify(`导入任务已提交（${job.status}）`, { type: "success" });
-      onSubmitted();
+      onSubmitted(job);
     } catch (error) {
       notify(getErrorMessage(error), { type: "error" });
     } finally {
@@ -586,10 +586,9 @@ function FileUploadDialog({
           ) : null}
           {receipt ? (
             <Alert>
-              <AlertTitle>导入任务：{receipt.status}</AlertTitle>
+              <AlertTitle>已提交导入</AlertTitle>
               <AlertDescription>
-                任务 ID：{receipt.jobId}
-                。请在“接入任务”中等待后端完成解析和入库。
+                系统正在解析、映射和去重。完成后可在“我的名单”查看。
               </AlertDescription>
             </Alert>
           ) : null}

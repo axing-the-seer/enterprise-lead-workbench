@@ -2,7 +2,7 @@ begin;
 
 create extension if not exists pgtap with schema extensions;
 
-select plan(9);
+select plan(11);
 
 select has_function(
   'public',
@@ -27,6 +27,15 @@ select ok(
     'EXECUTE'
   ),
   'authenticated workspace writers can submit through the guarded RPC'
+);
+
+select ok(
+  not has_function_privilege(
+    'service_role',
+    'public.submit_company_report_analysis(uuid,uuid,text,text,jsonb)',
+    'EXECUTE'
+  ),
+  'service workers cannot impersonate an authenticated report author'
 );
 
 insert into auth.users (
@@ -123,7 +132,18 @@ select lives_ok(
         "schemaVersion":"company-agent-analysis.v1",
         "executiveSummary":"基于公开资料形成的测试结论。",
         "executiveEvidenceIds":["ev-001"],
-        "businessProfile":[{"evidenceIds":["ev-002"]}]
+        "businessProfile":[{
+          "title":"主营业务",
+          "summary":"官网展示了企业的核心业务。",
+          "confidence":"high",
+          "evidenceIds":["ev-002"]
+        }],
+        "growthSignals":[],
+        "recentEvents":[],
+        "opportunities":[],
+        "risks":[],
+        "recommendedActions":[],
+        "limitations":[]
       }'::jsonb
     )
   $$,
@@ -175,7 +195,23 @@ select throws_ok(
       '38000000-0000-0000-0000-000000000001',
       'workbuddy',
       '伪造引用测试',
-      '{"schemaVersion":"company-agent-analysis.v1","executiveEvidenceIds":["ev-999"]}'::jsonb
+      '{
+        "schemaVersion":"company-agent-analysis.v1",
+        "executiveSummary":"基于公开资料形成的测试结论。",
+        "executiveEvidenceIds":["ev-999"],
+        "businessProfile":[{
+          "title":"主营业务",
+          "summary":"官网展示了企业的核心业务。",
+          "confidence":"high",
+          "evidenceIds":["ev-001"]
+        }],
+        "growthSignals":[],
+        "recentEvents":[],
+        "opportunities":[],
+        "risks":[],
+        "recommendedActions":[],
+        "limitations":[]
+      }'::jsonb
     )
   $$,
   '22023',
@@ -190,12 +226,49 @@ select throws_ok(
       '38000000-0000-0000-0000-000000000001',
       'workbuddy',
       '空引用测试',
-      '{"schemaVersion":"company-agent-analysis.v1","executiveEvidenceIds":[]}'::jsonb
+      '{
+        "schemaVersion":"company-agent-analysis.v1",
+        "executiveSummary":"基于公开资料形成的测试结论。",
+        "executiveEvidenceIds":[],
+        "businessProfile":[],
+        "growthSignals":[],
+        "recentEvents":[],
+        "opportunities":[],
+        "risks":[],
+        "recommendedActions":[],
+        "limitations":[]
+      }'::jsonb
     )
   $$,
   '22023',
-  'agent analysis evidence references are invalid',
+  'agent analysis structure is invalid',
   'RPC rejects an empty evidence citation set'
+);
+
+select throws_ok(
+  $$
+    select * from public.submit_company_report_analysis(
+      '18000000-0000-0000-0000-000000000001',
+      '38000000-0000-0000-0000-000000000001',
+      'workbuddy',
+      '内部字段泄露测试',
+      '{
+        "schemaVersion":"company-agent-analysis.v1",
+        "executiveSummary":"结论来自 ev-001，并使用 broad_context 口径。",
+        "executiveEvidenceIds":["ev-001"],
+        "businessProfile":[],
+        "growthSignals":[],
+        "recentEvents":[],
+        "opportunities":[],
+        "risks":[],
+        "recommendedActions":[],
+        "limitations":[]
+      }'::jsonb
+    )
+  $$,
+  '22023',
+  'customer-facing report text is invalid',
+  'RPC rejects internal evidence ids and enum names in customer-facing text'
 );
 
 select * from finish();

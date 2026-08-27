@@ -140,6 +140,7 @@ grant execute on function public.initialize_workbench_workspace(text, text) to s
 
 revoke all on function public.configure_source_connection(uuid, uuid, text, text, text, jsonb) from public, anon;
 grant execute on function public.configure_source_connection(uuid, uuid, text, text, text, jsonb) to authenticated;
+revoke all on function public.configure_source_connection(uuid, uuid, text, text, text, jsonb) from service_role;
 
 revoke all on function public.save_rule_template(uuid, uuid, text, text, text, jsonb, jsonb, text) from public, anon;
 grant execute on function public.save_rule_template(uuid, uuid, text, text, text, jsonb, jsonb, text) to authenticated;
@@ -151,8 +152,15 @@ grant execute on function public.enqueue_workbench_job(uuid, text, jsonb, text) 
 revoke all on function public.claim_next_workbench_job(text) from public, anon, authenticated;
 grant execute on function public.claim_next_workbench_job(text) to service_role;
 
-revoke all on function public.complete_workbench_job(text, uuid, text, jsonb, text, text) from public, anon, authenticated;
-grant execute on function public.complete_workbench_job(text, uuid, text, jsonb, text, text) to service_role;
+revoke all on function public.expire_stale_workbench_jobs(text) from public, anon, authenticated, service_role;
+
+revoke all on function public.renew_workbench_job_lease(text, uuid, text) from public, anon, authenticated;
+grant execute on function public.renew_workbench_job_lease(text, uuid, text) to service_role;
+
+revoke all on function public.complete_workbench_job(text, uuid, text, jsonb, text, text) from public, anon, authenticated, service_role;
+
+revoke all on function public.complete_workbench_job_guarded(text, uuid, text, text, jsonb, text, text) from public, anon, authenticated;
+grant execute on function public.complete_workbench_job_guarded(text, uuid, text, text, jsonb, text, text) to service_role;
 
 revoke all on function public.get_company_list_manifest_hash(uuid, uuid) from public, anon, authenticated;
 grant execute on function public.get_company_list_manifest_hash(uuid, uuid) to service_role;
@@ -365,6 +373,17 @@ grant all on table public.companies_summary to anon;
 grant all on table public.companies_summary to authenticated;
 grant all on table public.companies_summary to service_role;
 
+revoke all on table public.company_lists_overview from anon, authenticated;
+grant select on table public.company_lists_overview to authenticated;
+grant all on table public.company_lists_overview to service_role;
+
+revoke all on table public.company_list_entries from anon, authenticated;
+grant select on table public.company_list_entries to authenticated;
+grant all on table public.company_list_entries to service_role;
+
+revoke all on function public.search_company_list_ids(uuid, text, integer) from public, anon;
+grant execute on function public.search_company_list_ids(uuid, text, integer) to authenticated, service_role;
+
 revoke all on table public.companies_summary from anon, authenticated;
 grant select on table public.companies_summary to authenticated;
 grant all on table public.companies_summary to service_role;
@@ -459,8 +478,8 @@ alter default privileges for role postgres in schema public revoke all on sequen
 alter default privileges for role postgres in schema public revoke all on functions from authenticated;
 alter default privileges for role postgres in schema public revoke execute on functions from public;
 
-revoke all on function public.submit_company_report_analysis(uuid, uuid, text, text, jsonb) from public, anon;
-grant execute on function public.submit_company_report_analysis(uuid, uuid, text, text, jsonb) to authenticated, service_role;
+revoke all on function public.submit_company_report_analysis(uuid, uuid, text, text, jsonb) from public, anon, service_role;
+grant execute on function public.submit_company_report_analysis(uuid, uuid, text, text, jsonb) to authenticated;
 
 -- Trigger-only helper; browser/API roles must not invoke it as an RPC.
 revoke all on function public.set_company_list_origin() from public, anon, authenticated;

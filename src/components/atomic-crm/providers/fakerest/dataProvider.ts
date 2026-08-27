@@ -236,6 +236,7 @@ export const createDataProvider = ({
       initialized: false,
       claimInProgress: false,
       available: true,
+      localSingleUserMode: false,
     }),
     salesCreate: async ({ ...data }: SalesFormData): Promise<Sale> => {
       const response = await dataProvider.create("sales", {

@@ -85,4 +85,4 @@ npm run compliance:check
 
 ## Excluded external services / 不随产品分发的服务
 
-企查查 CLI/MCP、金蝶征信获客助手、腾讯云 WSA、Postmark 和 Supabase 托管服务是外部服务或用户自行安装的工具，不在静态产品 SBOM 中冒充为本项目分发组件。它们的数据使用、缓存、展示、转授权和计费范围以对应服务合同为准，不由开源许可证覆盖。
+企查查 CLI/MCP、金蝶征信获客助手、用户本机安装的 Ego Lite、Postmark 和 Supabase 托管服务是外部服务或用户自行安装的工具，不在静态产品 SBOM 中冒充为本项目分发组件。它们的数据使用、缓存、展示、转授权和计费范围以对应服务合同为准，不由开源许可证覆盖。

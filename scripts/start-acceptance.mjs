@@ -12,6 +12,10 @@ import {
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { withLocalProviderSecrets } from "./local-provider-env.mjs";
+import {
+  resolveLocalBootstrapToken,
+  resolveLocalSingleUserEmail,
+} from "./local-single-user.mjs";
 
 const requestedRoot =
   process.env.WORKBENCH_ACCEPTANCE_ROOT ?? ".supabase-acceptance";
@@ -25,6 +29,8 @@ const portOffset = parsePortOffset(
   process.env.WORKBENCH_ACCEPTANCE_PORT_OFFSET ?? "0",
 );
 const appUrl = `http://127.0.0.1:${appPort}/`;
+const localSingleUserMode =
+  process.env.WORKBENCH_ACCEPTANCE_LOCAL_SINGLE_USER !== "false";
 
 if (
   acceptanceRoot === resolve(".") ||
@@ -86,20 +92,12 @@ function parseEnv(output) {
   return values;
 }
 
-function requireBootstrapToken(value) {
-  if (
-    typeof value !== "string" ||
-    Buffer.byteLength(value, "utf8") < 24 ||
-    /[\r\n\0]/.test(value)
-  ) {
-    throw new Error(
-      "请先设置至少 24 字节且不含换行的 WORKBENCH_BOOTSTRAP_TOKEN。",
-    );
-  }
-  return value;
-}
-
-function createEdgeEnvFile(bootstrapToken, publishableKey, apiUrl) {
+function createEdgeEnvFile(
+  bootstrapToken,
+  publishableKey,
+  apiUrl,
+  singleUserMode,
+) {
   const directory = mkdtempSync(
     join(tmpdir(), "enterprise-lead-workbench-acceptance-edge-"),
   );
@@ -110,7 +108,7 @@ function createEdgeEnvFile(bootstrapToken, publishableKey, apiUrl) {
     .replaceAll('"', '\\"');
   writeFileSync(
     path,
-    `WORKBENCH_BOOTSTRAP_TOKEN="${escapedToken}"\nWORKBENCH_PUBLIC_ORIGIN="${apiUrl}"\nSB_PUBLISHABLE_KEY="${publishableKey}"\nSB_JWT_ISSUER="${apiUrl}/auth/v1"\n`,
+    `WORKBENCH_BOOTSTRAP_TOKEN="${escapedToken}"\nWORKBENCH_LOCAL_SINGLE_USER="${singleUserMode ? "true" : "false"}"\nWORKBENCH_PUBLIC_ORIGIN="${apiUrl}"\nSB_PUBLISHABLE_KEY="${publishableKey}"\nSB_JWT_ISSUER="${apiUrl}/auth/v1"\n`,
     {
       encoding: "utf8",
       flag: "wx",
@@ -211,7 +209,7 @@ async function waitForReady(apiUrl, children) {
 
 const { WORKBENCH_BOOTSTRAP_TOKEN: rawBootstrapToken, ...runtimeEnv } =
   process.env;
-const bootstrapToken = requireBootstrapToken(rawBootstrapToken);
+const bootstrapToken = resolveLocalBootstrapToken(rawBootstrapToken);
 
 prepareAcceptanceProject();
 process.stdout.write("正在启动隔离验收数据库…\n");
@@ -239,8 +237,27 @@ const edgeEnvFile = createEdgeEnvFile(
   bootstrapToken,
   local.PUBLISHABLE_KEY,
   local.API_URL,
+  localSingleUserMode,
 );
 process.once("exit", edgeEnvFile.cleanup);
+const localSingleUserEmail = localSingleUserMode
+  ? await resolveLocalSingleUserEmail(local.API_URL, local.SERVICE_ROLE_KEY)
+  : "";
+
+writeFileSync(
+  join(acceptanceRoot, ".env.e2e"),
+  [
+    `VITE_SUPABASE_URL=${local.API_URL}`,
+    `VITE_SB_PUBLISHABLE_KEY=${local.PUBLISHABLE_KEY}`,
+    `SERVICE_ROLE_KEY=${local.SERVICE_ROLE_KEY}`,
+    `WORKBENCH_BOOTSTRAP_TOKEN=${bootstrapToken}`,
+    `VITE_LOCAL_SINGLE_USER=${localSingleUserMode ? "true" : "false"}`,
+    "VITE_IS_DEMO=false",
+    "VITE_ATTACHMENTS_BUCKET=attachments",
+    "",
+  ].join("\n"),
+  { encoding: "utf8", mode: 0o600 },
+);
 
 const sharedEnv = {
   ...withLocalProviderSecrets(runtimeEnv),
@@ -248,6 +265,10 @@ const sharedEnv = {
   SUPABASE_SERVICE_ROLE_KEY: local.SERVICE_ROLE_KEY,
   VITE_SUPABASE_URL: local.API_URL,
   VITE_SB_PUBLISHABLE_KEY: local.PUBLISHABLE_KEY,
+  VITE_LOCAL_SINGLE_USER: localSingleUserMode ? "true" : "false",
+  ...(localSingleUserEmail
+    ? { VITE_LOCAL_SINGLE_USER_EMAIL: localSingleUserEmail }
+    : {}),
   VITE_CACHE_DIR: join(acceptanceRoot, "vite-cache"),
 };
 

@@ -2,7 +2,7 @@ begin;
 
 create extension if not exists pgtap with schema extensions;
 
-select plan(45);
+select plan(46);
 
 select has_function(
   'public',
@@ -53,6 +53,9 @@ select is(
     from unnest(array[
       'public.claim_next_workbench_job(text)',
       'public.complete_workbench_job(text,uuid,text,jsonb,text,text)',
+      'public.complete_workbench_job_guarded(text,uuid,text,text,jsonb,text,text)',
+      'public.renew_workbench_job_lease(text,uuid,text)',
+      'public.expire_stale_workbench_jobs(text)',
       'public.get_company_list_manifest_hash(uuid,uuid)',
       'public.persist_workbench_ingestion_record(uuid,text,text,jsonb,text,timestamp with time zone,jsonb,text,jsonb)',
       'public.persist_workbench_web_evidence(uuid,bigint,text,jsonb,text,timestamp with time zone,jsonb,text,jsonb)',
@@ -83,6 +86,9 @@ select is(
     from unnest(array[
       'public.claim_next_workbench_job(text)',
       'public.complete_workbench_job(text,uuid,text,jsonb,text,text)',
+      'public.complete_workbench_job_guarded(text,uuid,text,text,jsonb,text,text)',
+      'public.renew_workbench_job_lease(text,uuid,text)',
+      'public.expire_stale_workbench_jobs(text)',
       'public.get_company_list_manifest_hash(uuid,uuid)',
       'public.persist_workbench_ingestion_record(uuid,text,text,jsonb,text,timestamp with time zone,jsonb,text,jsonb)',
       'public.persist_workbench_web_evidence(uuid,bigint,text,jsonb,text,timestamp with time zone,jsonb,text,jsonb)',
@@ -100,7 +106,8 @@ select is(
     select count(*)::integer
     from unnest(array[
       'public.claim_next_workbench_job(text)',
-      'public.complete_workbench_job(text,uuid,text,jsonb,text,text)',
+      'public.complete_workbench_job_guarded(text,uuid,text,text,jsonb,text,text)',
+      'public.renew_workbench_job_lease(text,uuid,text)',
       'public.get_company_list_manifest_hash(uuid,uuid)',
       'public.persist_workbench_ingestion_record(uuid,text,text,jsonb,text,timestamp with time zone,jsonb,text,jsonb)',
       'public.persist_workbench_web_evidence(uuid,bigint,text,jsonb,text,timestamp with time zone,jsonb,text,jsonb)',
@@ -109,8 +116,22 @@ select is(
     ]) as f(signature)
     where has_function_privilege('service_role', signature, 'EXECUTE')
   ),
-  7,
+  8,
   'service role can execute every worker RPC'
+);
+
+select ok(
+  not has_function_privilege(
+    'service_role',
+    'public.complete_workbench_job(text,uuid,text,jsonb,text,text)',
+    'EXECUTE'
+  )
+  and not has_function_privilege(
+    'service_role',
+    'public.expire_stale_workbench_jobs(text)',
+    'EXECUTE'
+  ),
+  'service workers cannot bypass lease ownership or call cleanup directly'
 );
 
 select is(

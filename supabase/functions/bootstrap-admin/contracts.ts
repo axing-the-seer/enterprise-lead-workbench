@@ -2,6 +2,7 @@ export const MAX_BOOTSTRAP_REQUEST_BYTES = 16 * 1024;
 export const MIN_BOOTSTRAP_TOKEN_BYTES = 24;
 export const MIN_ADMIN_PASSWORD_LENGTH = 12;
 export const MAX_ADMIN_PASSWORD_LENGTH = 128;
+export const LOCAL_SINGLE_USER_EMAIL = "local-admin@workbench.invalid";
 
 export type BootstrapAdminInput = {
   action: "create";
@@ -17,6 +18,7 @@ export type BootstrapStatus = {
   initialized: boolean;
   claimInProgress: boolean;
   available: boolean;
+  localSingleUserMode: boolean;
 };
 
 export class BootstrapInputError extends Error {
@@ -90,6 +92,85 @@ export function parseBootstrapAdminInput(value: unknown): BootstrapAdminInput {
     firstName: requireString(body.firstName, "名字", 80),
     lastName: requireString(body.lastName, "姓氏", 80),
   };
+}
+
+export function parseLocalBootstrapAdminInput(
+  value: unknown,
+  configuredBootstrapToken: string | undefined,
+): BootstrapAdminInput {
+  if (!isBootstrapTokenConfigured(configuredBootstrapToken)) {
+    throw new BootstrapInputError(
+      "BOOTSTRAP_NOT_CONFIGURED",
+      "本机初始化服务未就绪",
+    );
+  }
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new BootstrapInputError("INVALID_INPUT", "初始化参数格式不正确");
+  }
+  const body = value as Record<string, unknown>;
+  if (body.action !== "create-local") {
+    throw new BootstrapInputError("INVALID_INPUT", "不支持的初始化操作");
+  }
+  if (typeof body.password !== "string") {
+    throw new BootstrapInputError("INVALID_INPUT", "密码格式不正确");
+  }
+  if (
+    body.password.length < MIN_ADMIN_PASSWORD_LENGTH ||
+    body.password.length > MAX_ADMIN_PASSWORD_LENGTH
+  ) {
+    throw new BootstrapInputError(
+      "INVALID_INPUT",
+      `密码长度应为 ${MIN_ADMIN_PASSWORD_LENGTH} 至 ${MAX_ADMIN_PASSWORD_LENGTH} 位`,
+    );
+  }
+
+  return {
+    action: "create",
+    bootstrapToken: configuredBootstrapToken!,
+    email: LOCAL_SINGLE_USER_EMAIL,
+    password: body.password,
+    firstName: "本机",
+    lastName: "管理员",
+  };
+}
+
+export function isLocalSingleUserModeEnabled(
+  configured: string | undefined,
+  supabaseUrl: string | undefined,
+): boolean {
+  if (configured !== "true" || !supabaseUrl) return false;
+  try {
+    const url = new URL(supabaseUrl);
+    return (
+      (url.protocol === "http:" || url.protocol === "https:") &&
+      (url.hostname === "localhost" ||
+        url.hostname === "127.0.0.1" ||
+        url.hostname === "[::1]")
+    );
+  } catch {
+    return false;
+  }
+}
+
+export function isLocalBootstrapRequestAllowed(
+  originHeader: string | null,
+  secFetchSiteHeader: string | null,
+): boolean {
+  // Command-line and native callers do not send browser fetch metadata. Keep
+  // that local administration path available while rejecting ambiguous
+  // browser requests that omit Origin.
+  if (!originHeader) return !secFetchSiteHeader;
+  try {
+    const origin = new URL(originHeader);
+    return (
+      (origin.protocol === "http:" || origin.protocol === "https:") &&
+      (origin.hostname === "localhost" ||
+        origin.hostname === "127.0.0.1" ||
+        origin.hostname === "[::1]")
+    );
+  } catch {
+    return false;
+  }
 }
 
 async function sha256(value: string): Promise<Uint8Array> {

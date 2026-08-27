@@ -182,9 +182,8 @@ Deno.test(
       queryKind: "web_evidence",
       criteria: {
         companyId: "42",
-        claimType: "tender",
-        extraKeywords: ["信创"],
-        site: "example.test",
+        claimType: "public_report",
+        reportMode: true,
         maxResults: 5,
       },
       idempotencyKey: "rest-query:2026-08-20:002",
@@ -206,7 +205,8 @@ Deno.test(
           criteria: {
             companyId: "42",
             companyName: "不允许客户端覆盖数据库企业名称",
-            claimType: "news",
+            claimType: "public_report",
+            reportMode: true,
           },
           idempotencyKey: "rest-query:2026-08-20:002b",
         }),
@@ -217,6 +217,7 @@ Deno.test(
         startIngestionQueryBodySchema.parse({
           sourceConnectionId: connectionId,
           queryKind: "company_search",
+          listName: "北京软件企业",
           criteria: { nested: { api_key: "must-not-enter-a-job" } },
           idempotencyKey: "rest-query:2026-08-20:003",
         }),
@@ -227,12 +228,51 @@ Deno.test(
         startIngestionQueryBodySchema.parse({
           sourceConnectionId: connectionId,
           queryKind: "company_search",
+          listName: "北京软件企业",
           criteria: {},
           storagePath: `${workspaceId}/file.csv`,
           idempotencyKey: "rest-query:2026-08-20:004",
         }),
       "file import fields must be rejected",
     );
+    assertThrows(
+      () =>
+        startIngestionQueryBodySchema.parse({
+          sourceConnectionId: connectionId,
+          queryKind: "company_search",
+          criteria: {},
+          idempotencyKey: "rest-query:2026-08-20:005",
+        }),
+      "company search must require a user-facing list name",
+    );
+    for (const invalidCriteria of [
+      {
+        companyId: "42",
+        claimType: "news_signal",
+        reportMode: true,
+      },
+      {
+        companyId: "42",
+        claimType: "public_report",
+      },
+      {
+        companyId: "42",
+        claimType: "public_report",
+        reportMode: true,
+        maxResults: 9,
+      },
+    ]) {
+      assertThrows(
+        () =>
+          startIngestionQueryBodySchema.parse({
+            sourceConnectionId: connectionId,
+            queryKind: "web_evidence",
+            criteria: invalidCriteria,
+            idempotencyKey: "rest-query:2026-08-20:invalid-report",
+          }),
+        "public report collection must reject the legacy or oversized contract",
+      );
+    }
   },
 );
 

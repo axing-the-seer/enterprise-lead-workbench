@@ -1,11 +1,8 @@
 import type { SourceConnection } from "./types";
 import {
-  buildWebEvidenceCriteria,
-  buildWebEvidenceJobPayload,
+  buildPublicReportCriteria,
+  buildPublicReportJobPayload,
   isReadyWebEvidenceSource,
-  TENCENT_WSA_ENDPOINT,
-  TENCENT_WSA_SECRET_REFERENCE,
-  webSearchConnectionConfiguration,
 } from "./webEvidence";
 
 function fictionalSource(provider: string, status: string): SourceConnection {
@@ -34,24 +31,20 @@ describe("Web 证据 GUI 契约", () => {
     );
   });
 
-  it("只生成绑定已有企业的正式 criteria", () => {
-    const criteria = buildWebEvidenceCriteria({
-      companyId: "fictional-company-id",
-      claimType: "tender",
-      extraKeywordsText: " 虚构产品 , 虚构产品\n虚构项目 ",
-      site: " example.invalid ",
+  it("只生成绑定已有企业的 Ego Lite 报告协议", () => {
+    const criteria = buildPublicReportCriteria({
+      companyId: "123",
       maxResults: 6,
     });
 
     expect(criteria).toEqual({
-      companyId: "fictional-company-id",
-      claimType: "tender",
-      extraKeywords: ["虚构产品", "虚构项目"],
-      site: "example.invalid",
+      companyId: 123,
+      claimType: "public_report",
+      reportMode: true,
       maxResults: 6,
     });
     expect(
-      buildWebEvidenceJobPayload("fictional-web-source-id", criteria),
+      buildPublicReportJobPayload("fictional-web-source-id", criteria),
     ).toEqual({
       sourceConnectionId: "fictional-web-source-id",
       queryKind: "web_evidence",
@@ -59,30 +52,17 @@ describe("Web 证据 GUI 契约", () => {
     });
   });
 
-  it("不接受空企业标识或超界结果数", () => {
+  it("不接受无效企业标识或超界结果数", () => {
     expect(() =>
-      buildWebEvidenceCriteria({
+      buildPublicReportCriteria({
         companyId: " ",
-        claimType: "news",
       }),
-    ).toThrow("缺少已入库企业标识");
+    ).toThrow("缺少已入库的有效企业标识");
     expect(() =>
-      buildWebEvidenceCriteria({
-        companyId: "fictional-company-id",
-        claimType: "news",
-        maxResults: 11,
+      buildPublicReportCriteria({
+        companyId: 123,
+        maxResults: 9,
       }),
-    ).toThrow("搜索结果数必须是 1 到 10 的整数");
-  });
-
-  it("腾讯云 WSA 配置只切换固定服务器凭证引用", () => {
-    expect(webSearchConnectionConfiguration(true)).toEqual({
-      secretReference: TENCENT_WSA_SECRET_REFERENCE,
-      connectionConfig: { endpoint: TENCENT_WSA_ENDPOINT },
-    });
-    expect(webSearchConnectionConfiguration(false)).toEqual({
-      secretReference: null,
-      connectionConfig: { endpoint: TENCENT_WSA_ENDPOINT },
-    });
+    ).toThrow("每类资料数必须是 1 到 8 的整数");
   });
 });

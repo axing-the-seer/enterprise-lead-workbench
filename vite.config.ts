@@ -14,7 +14,12 @@ export default defineConfig({
   cacheDir: process.env.VITE_CACHE_DIR || "node_modules/.vite",
   server: {
     port: 3101,
-    host: true,
+    // Local single-user mode must not be reachable from the LAN by default.
+    // Deployments use the built static bundle rather than this dev server.
+    host: process.env.VITE_DEV_HOST || "127.0.0.1",
+    // Acceptance databases and per-run Vite caches live below these folders.
+    // Watching them causes thousands of unrelated reloads while tests reset.
+    watch: { ignored: ["**/.supabase-*/**"] },
   },
   optimizeDeps: {
     include: ["jszip"],
@@ -22,10 +27,14 @@ export default defineConfig({
   plugins: [
     react(),
     tailwindcss(),
-    visualizer({
-      open: process.env.NODE_ENV !== "CI",
-      filename: "./dist/stats.html",
-    }),
+    ...(process.env.ANALYZE_BUNDLE === "true"
+      ? [
+          visualizer({
+            open: false,
+            filename: "./dist/stats.html",
+          }),
+        ]
+      : []),
     createHtmlPlugin({
       minify: true,
       inject: {
@@ -60,6 +69,12 @@ export default defineConfig({
           ),
           "import.meta.env.VITE_ATTACHMENTS_BUCKET": JSON.stringify(
             process.env.VITE_ATTACHMENTS_BUCKET,
+          ),
+          "import.meta.env.VITE_LOCAL_SINGLE_USER": JSON.stringify(
+            process.env.VITE_LOCAL_SINGLE_USER,
+          ),
+          "import.meta.env.VITE_LOCAL_SINGLE_USER_EMAIL": JSON.stringify(
+            process.env.VITE_LOCAL_SINGLE_USER_EMAIL,
           ),
         }
       : undefined,

@@ -22,10 +22,10 @@ jobs:
 
         steps:
             - name: 📥 Checkout repo
-              uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+              uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
 
             - name: ⚙️ Setup node
-              uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+              uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
               with:
                   node-version: 22
                   cache: npm
@@ -66,10 +66,10 @@ jobs:
 
         steps:
             - name: 📥 Checkout repo
-              uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+              uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
 
             - name: ⚙️ Setup node
-              uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+              uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
               with:
                   node-version: 22
                   cache: npm
@@ -120,10 +120,10 @@ jobs:
 
         steps:
             - name: 📥 Checkout repo
-              uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+              uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
 
             - name: ⚙️ Setup node
-              uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+              uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
               with:
                   node-version: 22
                   cache: npm
@@ -138,6 +138,8 @@ jobs:
 
             - name: ⚙️ Setup supabase
               uses: supabase/setup-cli@ab058987d8d6c725971f6cf9d0b5c98467e30bd1 # v1.7.1
+              with:
+                  version: 2.116.0
 
             - name: 📥 Download deps
               run: npm ci
@@ -147,7 +149,7 @@ jobs:
 
             - if: ${{ env.IS_SUPABASE_CONFIGURED }}
               name: 🔗 Supabase Link
-              run: npx supabase link --project-ref $SUPABASE_PROJECT_ID
+              run: supabase link --project-ref $SUPABASE_PROJECT_ID
 
             - if: ${{ env.IS_SUPABASE_CONFIGURED }}
               name: 🔒 Close hosted public signup
@@ -176,7 +178,7 @@ jobs:
 
             - if: ${{ env.IS_SUPABASE_CONFIGURED }}
               name: 📡 Push supabase migrations
-              run: npx supabase db push
+              run: supabase db push
 
             - if: ${{ env.IS_SUPABASE_CONFIGURED }}
               name: 🔐 Push Supabase function secrets
@@ -211,11 +213,11 @@ jobs:
                     mode: 0o600,
                   });
                   NODE
-                  npx supabase secrets set --env-file "$SECRET_FILE" >/dev/null
+                  supabase secrets set --env-file "$SECRET_FILE" >/dev/null
 
             - if: ${{ env.IS_SUPABASE_CONFIGURED }}
               name: 📡 Deploy supabase functions
-              run: npx supabase functions deploy
+              run: supabase functions deploy
 
             - if: ${{ !env.SUPABASE_ACCESS_TOKEN }}
               name: Check SUPABASE_ACCESS_TOKEN secret

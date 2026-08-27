@@ -229,7 +229,7 @@ export function CompanyDetailDrawer({
         createIdempotencyKey("ego-report"),
       );
       notify(
-        "企业资料采集任务已提交。Ego Lite 完成后，请交给 WorkBuddy 或其他 Agent 分析。",
+        "企业资料采集已开始。Ego Lite 完成后，可交给 WorkBuddy 或其他智能助手分析。",
         { type: "info" },
       );
       await onJobsChanged();
@@ -435,12 +435,10 @@ export function CompanyDetailDrawer({
                     <FileHtml className="size-5" />
                   </span>
                   <div>
-                    <h3 className="text-sm font-semibold">
-                      Agent 企业调研报告
-                    </h3>
+                    <h3 className="text-sm font-semibold">企业调研报告</h3>
                     <p className="mt-1 text-xs leading-5 text-slate-500">
                       Ego Lite 负责采集官网、招聘和新闻证据；WorkBuddy 或其他
-                      Agent 负责理解、判断并回写统一格式的报告。
+                      智能助手负责理解、判断并回写统一格式的报告。
                     </p>
                   </div>
                 </div>
@@ -462,7 +460,7 @@ export function CompanyDetailDrawer({
                             : ["completed", "partial"].includes(
                                   latestReport?.status ?? "",
                                 )
-                              ? "等待 Agent 分析"
+                              ? "待智能分析"
                               : jobLabel(latestReport?.status)}
                         </p>
                       </div>
@@ -497,7 +495,7 @@ export function CompanyDetailDrawer({
                 ) : (
                   <EmptyNotice
                     title="还没有企业报告"
-                    description="从单家企业按需采集资料，再交给已连接的 Agent 分析，不会在前端静默调用大模型。"
+                    description="从单家企业按需采集资料，再交给已连接的 WorkBuddy 或其他智能助手分析，不会在前端静默调用大模型。"
                   />
                 )}
                 <Button

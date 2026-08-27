@@ -152,9 +152,8 @@ export function PublicReportPage() {
             </Badge>
           </div>
           <p className="mt-2 text-sm text-slate-500">
-            任务 {jobId.slice(0, 8)} ·{" "}
             {reportRecord
-              ? `${reportRecord.agent_name} 分析 · ${formatDateTime(reportRecord.submitted_at)}`
+              ? `由 ${reportRecord.agent_name} 整理 · ${formatDateTime(reportRecord.submitted_at)}`
               : formatDateTime(
                   job.data?.completed_at || job.data?.requested_at,
                 )}
@@ -196,8 +195,8 @@ export function PublicReportPage() {
             <h2 className="mt-5 text-lg font-semibold">正在采集企业资料</h2>
             <p className="mt-2 max-w-lg text-sm leading-6 text-slate-500">
               Ego Lite
-              正在检索官网、招聘与公开新闻。采集过程不调用大模型；完成后由 Agent
-              读取证据并生成报告。
+              正在检索官网、招聘与公开新闻。采集过程不调用大模型；完成后可交给
+              WorkBuddy 或其他智能助手整理。
             </p>
           </div>
         </section>
@@ -226,25 +225,24 @@ export function PublicReportPage() {
           <div>
             <FileHtml className="mx-auto size-9 text-slate-300" />
             <h2 className="mt-4 text-lg font-semibold">
-              资料已采集，等待 Agent 分析
+              资料已采集，可开始智能分析
             </h2>
             <p className="mx-auto mt-2 max-w-xl text-sm leading-6 text-slate-500">
-              请在已连接企业名单工作台 MCP 的 WorkBuddy 或其他 Agent
-              中，让它读取任务 {jobId.slice(0, 8)}{" "}
-              的证据并生成报告。工作台不会静默调用大模型。
+              在已连接本工作台的 WorkBuddy
+              或其他智能助手中粘贴下方请求即可。分析使用该工具的模型能力；本工作台不会自动消耗模型额度。
             </p>
             <Button
               className="mt-5 rounded-full"
               variant="outline"
               onClick={async () => {
                 await navigator.clipboard.writeText(
-                  `读取企业名单工作台中的证据任务 ${jobId}，生成企业调研报告并回写工作台。`,
+                  `请读取企业名单工作台中「${companyName}」最新采集的公开资料，整理成企业调研报告并保存回工作台。`,
                 );
-                notify("任务指令已复制。", { type: "success" });
+                notify("分析请求已复制。", { type: "success" });
               }}
             >
               <Copy />
-              复制给 Agent 的指令
+              复制分析请求
             </Button>
           </div>
         </section>
@@ -288,8 +286,8 @@ function statusLabel(status?: string) {
       {
         queued: "排队中",
         running: "采集中",
-        completed: "等待 Agent 分析",
-        partial: "等待 Agent 分析",
+        completed: "待智能分析",
+        partial: "待智能分析",
         failed: "失败",
       } as Record<string, string>
     )[status ?? ""] ?? "读取中"

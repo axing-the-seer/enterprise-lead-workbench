@@ -506,14 +506,12 @@ export async function processIngestionJob(
 
   const sourceQueryId = uuidOrNull(job.payload.source_query_id);
   const requestedBy = uuidOrNull(job.payload.requested_by);
-  // QCC company_detail enriches an already-managed company. Its independent
-  // source facts belong on that company, but the enrichment must not create a
-  // synthetic "data batch" in My Lists.
+  // Only source acquisition creates a managed list. QCC/KC enrichment updates
+  // independent facts on an existing company and must never create a synthetic
+  // list in "My Lists".
   const inputParams = object(job.payload.input_params ?? {});
-  const createsList = !(
-    connection.provider === "qcc" &&
-    text(inputParams.query_kind) === "company_detail"
-  );
+  const createsList =
+    jobKind === "import" || text(inputParams.query_kind) === "company_search";
   const listId = createsList
     ? await store.ensureIngestionList(job, sourceQueryId, requestedBy)
     : null;
@@ -570,6 +568,20 @@ export async function processIngestionJob(
       `本批 ${prepared.length} 条记录均未通过映射；请查看拒绝原因代码。`,
     );
   }
+  let stagingCleanupWarning: string | null = null;
+  if (jobKind === "import") {
+    const inputPath = text(job.payload.input_object_path);
+    if (inputPath) {
+      try {
+        await store.deleteImport(inputPath);
+      } catch (error) {
+        stagingCleanupWarning =
+          error instanceof WorkerError
+            ? error.code
+            : "IMPORT_STAGING_CLEANUP_FAILED";
+      }
+    }
+  }
   return {
     received_count: prepared.length,
     accepted_count: accepted,
@@ -579,5 +591,13 @@ export async function processIngestionJob(
       : { verified_company_ids: [...new Set(verifiedCompanyIds)] }),
     rejected_records: rejected.slice(0, 100),
     truncated_rejections: rejected.length > 100,
+    ...(jobKind === "import"
+      ? {
+          staging_file_removed: stagingCleanupWarning === null,
+          ...(stagingCleanupWarning
+            ? { cleanup_warning: stagingCleanupWarning }
+            : {}),
+        }
+      : {}),
   };
 }

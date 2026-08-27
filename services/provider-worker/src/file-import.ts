@@ -102,9 +102,14 @@ function parseCsv(bytes: Uint8Array): ImportedRows {
     );
   }
   const imported = ensureRows(result.data);
+  // PapaParse makes duplicate headers unique (for example `企业名称_1`) before
+  // exposing `meta.fields`, so comparing the final field names cannot detect
+  // the collision. `renamedHeaders` preserves the original collision signal.
+  const metaWithRenamedHeaders = result.meta as typeof result.meta & {
+    renamedHeaders?: Record<string, string>;
+  };
   const duplicateHeaders =
-    Object.keys(result.meta.fields ?? {}).length !==
-    new Set(result.meta.fields ?? []).size;
+    Object.keys(metaWithRenamedHeaders.renamedHeaders ?? {}).length > 0;
   return duplicateHeaders
     ? { ...imported, warnings: ["检测到重复列名；请在字段映射前复核。"] }
     : imported;

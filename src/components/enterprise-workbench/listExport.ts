@@ -167,8 +167,11 @@ function cell(value: unknown) {
   return String(value);
 }
 
-function csvCell(value: string) {
-  return /[",\r\n]/.test(value) ? `"${value.replaceAll('"', '""')}"` : value;
+export function csvCell(value: string) {
+  const safeValue = /^[=+\-@\t\r]/.test(value) ? `'${value}` : value;
+  return /[",\r\n]/.test(safeValue)
+    ? `"${safeValue.replaceAll('"', '""')}"`
+    : safeValue;
 }
 
 function xmlEscape(value: string) {

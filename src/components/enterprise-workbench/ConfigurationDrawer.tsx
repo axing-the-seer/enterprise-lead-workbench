@@ -2,12 +2,14 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowSquareOut,
   CheckCircle,
+  Copy,
   Database,
   FileArrowUp,
   GlobeHemisphereWest,
   PlugsConnected,
   SlidersHorizontal,
   SpinnerGap,
+  Robot,
   WarningCircle,
 } from "@phosphor-icons/react";
 import { useGetList, useNotify } from "ra-core";
@@ -97,6 +99,7 @@ export function ConfigurationDrawer({
     { enabled: open && Boolean(workspace?.id) },
   );
   const [testing, setTesting] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
   const [receipts, setReceipts] = useState<
     Record<string, WorkbenchJobResponse>
   >({});
@@ -130,6 +133,9 @@ export function ConfigurationDrawer({
       new Map((sources.data ?? []).map((source) => [source.provider, source])),
     [sources.data],
   );
+  const assistantConnectionUrl = import.meta.env.VITE_SUPABASE_URL
+    ? `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/mcp`
+    : "";
 
   useEffect(() => {
     if (!testJobs.data?.length) return;
@@ -201,12 +207,15 @@ export function ConfigurationDrawer({
         </SheetHeader>
 
         <Tabs defaultValue="sources" className="p-5 sm:p-7">
-          <TabsList className="grid h-11 w-full grid-cols-3 rounded-xl bg-black/[0.05] p-1">
+          <TabsList className="grid h-11 w-full grid-cols-4 rounded-xl bg-black/[0.05] p-1">
             <TabsTrigger value="sources" className="rounded-lg">
               数据来源
             </TabsTrigger>
             <TabsTrigger value="rules" className="rounded-lg">
               整理规则
+            </TabsTrigger>
+            <TabsTrigger value="assistant" className="rounded-lg">
+              智能助手
             </TabsTrigger>
             <TabsTrigger value="advanced" className="rounded-lg">
               高级
@@ -315,6 +324,58 @@ export function ConfigurationDrawer({
                   管理规则模板 <ArrowSquareOut />
                 </Link>
               </Button>
+            </section>
+          </TabsContent>
+
+          <TabsContent value="assistant" className="mt-5 space-y-4">
+            <section className="rounded-2xl border border-black/[0.06] bg-white p-5">
+              <div className="flex items-center gap-3">
+                <span className="grid size-10 place-items-center rounded-xl bg-[#eef5ff] text-[#1268d9]">
+                  <Robot className="size-5" />
+                </span>
+                <div>
+                  <h3 className="text-sm font-semibold">
+                    连接 WorkBuddy 或其他智能助手
+                  </h3>
+                  <p className="mt-1 text-xs leading-5 text-slate-500">
+                    连接后，智能助手可以根据对话创建名单、核验企业并整理报告。
+                  </p>
+                </div>
+              </div>
+              <Separator className="my-4" />
+              {assistantConnectionUrl ? (
+                <>
+                  <p className="text-sm leading-6 text-slate-600">
+                    在智能助手的“添加连接”界面粘贴下方地址，再按浏览器提示允许访问。
+                  </p>
+                  <div className="mt-4 rounded-xl border bg-slate-50 p-3">
+                    <p className="break-all text-xs leading-5 text-slate-600">
+                      {assistantConnectionUrl}
+                    </p>
+                  </div>
+                  <Button
+                    className="mt-4 w-full rounded-full"
+                    onClick={async () => {
+                      await navigator.clipboard.writeText(
+                        assistantConnectionUrl,
+                      );
+                      setCopied(true);
+                      window.setTimeout(() => setCopied(false), 1_500);
+                    }}
+                  >
+                    {copied ? <CheckCircle /> : <Copy />}
+                    {copied ? "已复制" : "复制连接地址"}
+                  </Button>
+                </>
+              ) : (
+                <Alert variant="destructive">
+                  <WarningCircle />
+                  <AlertTitle>暂无法生成连接地址</AlertTitle>
+                  <AlertDescription>
+                    请确认本机服务已完整启动后重试。
+                  </AlertDescription>
+                </Alert>
+              )}
             </section>
           </TabsContent>
 

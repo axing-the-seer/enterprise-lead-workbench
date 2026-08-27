@@ -1,6 +1,6 @@
 ---
 title: 数据源映射与冲突规范
-description: 获客助手、企查查、腾讯云 Web 证据和客户文件进入企业名单工作台时的生产映射契约。
+description: 获客助手、企查查、Ego Lite 公开资料和客户文件进入企业名单工作台时的生产映射契约。
 ---
 
 本项目把数据接入拆成两层：连接器负责在服务端取得授权响应，`ProviderAdapter` 负责确定性地完成 `raw -> canonical -> provenance`。适配器不发起网络请求，不读取密钥，也不允许模型猜字段。
@@ -99,20 +99,20 @@ interface ProviderAdapter<TRaw, TOptions> {
 
 内置别名包括企业/公司/客户主体名称、统一社会信用代码、法定代表人、企业类型、注册/实缴资本、核准日期、登记机关、登记/经营状态、地区及明确的省/市/区县列、人员规模、参保/社保人数、一二级/国标行业、资质/风险/经营标签。这些别名只提供候选映射；生产 GUI 仍应展示前 10 行的“原列 -> canonical 字段 -> 单位 -> 样例值”供用户确认。
 
-## 腾讯云联网搜索（Web 证据）
+## Ego Lite 公开信息资料包
 
-执行器：`services/provider-worker/src/tencent-wsa.ts`；映射器：`src/providers/tencent-wsa/adapter.ts`；Provider ID：`tencent_wsa`。本适配器按腾讯云联网搜索 WSA 服务 API KEY 方式实现，固定调用 `POST https://api.wsa.cloud.tencent.com/SearchPro`，密钥只从服务器变量 `TENCENTCLOUD_WSA_APIKEY` 读取。参见 [腾讯云服务 API KEY 接入文档](https://cloud.tencent.com/document/product/1806/130615) 和 [SearchPro 字段文档](https://cloud.tencent.com/document/product/1806/121811)。
+执行器：`services/provider-worker/src/ego-report.ts`；任务入口：`services/provider-worker/src/ingestion.ts`；连接 Provider ID：`web_search`；实际采集引擎：`ego_lite`。默认调用本机 `ego-browser`，可在受信任的 Worker 环境中用 `EGO_BROWSER_PATH` 指定可执行文件。它不需要浏览器端 API Key，也不使用模型 Token。
 
-Web 证据与企业名单来源严格分开：
+公开资料与企业名单来源严格分开：
 
-1. 任务必须传入当前工作空间已存在的 `companyId`。执行器从数据库重新读取企业名称和信用代码，不接受客户端传入的企业名称，也不会根据网页新建企业。
-2. 用户每次只选择一类证据：官网、产品/服务、获奖/荣誉、招中标、招聘、新闻或其他。该选项只用于构造确定性搜索词和标注 `claimType`，不说明页面内容已被证实。
-3. 只白名单保留 WSA 文档字段 `title` / `date` / `url` / `passage` / `site` / `score` / `authority_level`。`content`、图片、favicon、子链、供应商未知字段和任何疑似凭证字段不落库。
-4. `url` 必须是 HTTP(S)，去除 fragment 后按企业 + URL + `claimType` 稳定去重。`passage` 只作搜索结果摘要，`score` 只作供应商相关性证据，不转换为工作台业务分。
-5. 新入库项的 `evidence_status=unverified`、`usage_scope=link_only`。它们可供人工点开原网页复核，但不写入 `company_field_facts`，不更新工商主表，不覆盖企查查或获客助手事实。
-6. “测试连接”只校验固定端点与服务器凭证配置，不调用搜索。只有用户对某家企业明确点击补证时才会产生一次可计费请求。
+1. 任务必须使用 `queryKind=web_evidence`，并在 `criteria` 中固定提交当前工作空间已存在的数字 `companyId`、`claimType=public_report` 和 `reportMode=true`。任何额外条件都会被 Worker 拒绝。
+2. Worker 在行级权限范围内重新读取企业名称和信用代码，不接受客户端传入的企业名称，也不会根据网页新建企业。
+3. Ego Lite 分别检索官网与业务、招聘动态和公开新闻。系统保留标题、HTTP(S) 链接、搜索摘要、检索词、来源名称、抓取时间、相关性和页面类型，并按规范化 URL 去重。
+4. 项目不绕过登录、验证码、反自动化限制或付费墙。搜索摘要只是待复核资料，不写入 `company_field_facts`，不更新工商主表，不覆盖企查查或获客助手事实。
+5. 资料包以 `ego-lite-agent-evidence-v2` 格式落库，状态为 `awaiting_agent`。基础采集不调用模型；WorkBuddy 或其他 Agent 只有在用户要求深度分析时才读取资料包、生成统一报告并回写。
+6. “检查配置”只验证 Ego Lite 能否在本机隔离任务中打开公开页面，不检索企业。只有用户对某家已入库企业明确点击“采集报告资料”时才创建真实采集任务。
 
-原始响应不直接进入通用快照。`source_records.raw_payload` 保存的也是上述白名单投影，便于在数据授权变化时缩小二次分发范围。
+原始搜索结果只在工作空间权限内保存；普通名单、导出和 MCP 安全响应不返回未经控制的原始页面内容。
 
 ## 去重和冲突
 

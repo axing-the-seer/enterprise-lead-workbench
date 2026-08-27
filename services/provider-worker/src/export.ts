@@ -71,6 +71,10 @@ const FIELD_LABELS: Record<string, string> = {
   decision: "规则结果",
 };
 
+const MAX_EXPORT_BYTES = 50 * 1024 * 1024;
+const USER_ID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
 function selectedFields(value: unknown): string[] {
   const fields =
     Array.isArray(value) && value.length ? value : [...DEFAULT_FIELDS];
@@ -229,7 +233,26 @@ export async function processExport(
   const rows = exportRows(context, fields, filter);
   const rendered = await render(format, rows);
   const requestedBy = String(job.payload.requested_by ?? "service");
-  const path = `${job.workspace_id}/${requestedBy}/${job.job_id}.${rendered.extension}`;
+  if (requestedBy !== "service" && !USER_ID_PATTERN.test(requestedBy)) {
+    throw new WorkerError(
+      "EXPORT_REQUESTER_INVALID",
+      "导出任务的请求人标识无效。",
+    );
+  }
+  const attemptCount = Number(job.payload.attempt_count);
+  if (!Number.isSafeInteger(attemptCount) || attemptCount < 1) {
+    throw new WorkerError(
+      "EXPORT_ATTEMPT_INVALID",
+      "导出任务缺少有效的执行次数。",
+    );
+  }
+  if (rendered.content.byteLength > MAX_EXPORT_BYTES) {
+    throw new WorkerError(
+      "EXPORT_FILE_TOO_LARGE",
+      "导出文件超过 50 MiB，请减少字段或拆分名单。",
+    );
+  }
+  const path = `${job.workspace_id}/${requestedBy}/${job.job_id}-attempt-${attemptCount}.${rendered.extension}`;
   await store.uploadExport(path, rendered.mediaType, rendered.content);
   return {
     storage_bucket: "workbench-exports",

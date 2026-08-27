@@ -933,35 +933,21 @@ const schemas: Record<string, JsonSchema> = {
         description: "已存在且属于当前工作空间的企业 ID",
       },
       claimType: {
-        type: "string",
-        enum: [
-          "official_website",
-          "product",
-          "award",
-          "tender",
-          "recruiting",
-          "news",
-          "other",
-        ],
+        const: "public_report",
+        description: "固定为企业公开信息报告",
       },
-      extraKeywords: {
-        type: "array",
-        maxItems: 8,
-        items: { type: "string", minLength: 1, maxLength: 40 },
-      },
-      site: {
-        type: "string",
-        maxLength: 253,
-        description: "可选的单一站点域名，不包含协议或路径",
+      reportMode: {
+        const: true,
+        description: "必须明确启用报告资料采集模式",
       },
       maxResults: {
         type: "integer",
         minimum: 1,
-        maximum: 10,
-        default: 10,
+        maximum: 8,
+        default: 6,
       },
     },
-    ["companyId", "claimType"],
+    ["companyId", "claimType", "reportMode"],
   ),
   StartCompanySearchRequest: objectSchema(
     {
@@ -969,7 +955,13 @@ const schemas: Record<string, JsonSchema> = {
       queryKind: { const: "company_search" },
       criteria: { $ref: "#/components/schemas/KcCompanySearchCriteria" },
     },
-    ["sourceConnectionId", "queryKind", "criteria", "idempotencyKey"],
+    [
+      "sourceConnectionId",
+      "queryKind",
+      "listName",
+      "criteria",
+      "idempotencyKey",
+    ],
   ),
   StartCompanyDetailRequest: objectSchema(
     {
@@ -1158,7 +1150,7 @@ export function buildOpenApiDocument(serverUrl: string) {
       "/workspaces/{workspaceId}/ingestion-queries": {
         post: protectedPost(
           "startIngestionQuery",
-          "提交企查查、获客助手或已存在企业的 Web 证据任务",
+          "提交企查查、获客助手或已存在企业的 Ego Lite 公开资料任务",
           "StartIngestionQueryRequest",
         ),
       },
